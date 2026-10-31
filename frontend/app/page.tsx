@@ -3,7 +3,6 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { initialProvenanceState, loadProvenanceRecord } from "../lib/provenance";
 import type { ProvenanceResult, ProvenanceTarget } from "../lib/provenance";
-import { FormEvent, useEffect, useMemo, useState } from "react";
 import { CitationVerificationTable } from "./CitationVerificationTable";
 
 type Evidence = Record<string, any>;
@@ -564,7 +563,7 @@ export default function Home() {
                       verification={explanation.validation.claim_verification}
                       title="Explanation Claim Verification"
                       subtitle="Deterministic verification of atomic claims extracted from explanation against current evidence ledger."
-                      onOpenProvenance={openProvenance}
+                      onOpenProvenance={openLedger}
                       onReverify={explanation.data?.claims?.length ? reverifyExplanationClaims : undefined}
                       reverifyBusy={reverifyBusy}
                     />
@@ -578,7 +577,7 @@ export default function Home() {
                   verification={citationDemo}
                   title="Interactive Verifier Test Results"
                   subtitle="Detailed status audit of test claims against evidence ledger."
-                  onOpenProvenance={openProvenance}
+                  onOpenProvenance={openLedger}
                   onReverify={runComprehensiveDemo}
                   reverifyBusy={citationDemoBusy}
                 />
