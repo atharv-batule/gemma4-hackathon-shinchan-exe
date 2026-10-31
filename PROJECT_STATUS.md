@@ -36,6 +36,12 @@ The highest-impact gaps are: DrugComb is disabled until its deployed query param
 - **What is missing:** The current environment has no Gemma endpoint/model configured. No real inference request or resulting scientific explanation has been verified.
 - **Next action:** Configure an authorized OpenAI-compatible Gemma endpoint and model, then run a limited evidence-bundle integration check and verify returned citations against the supplied records.
 
+### Deterministic citation verifier & detailed status table
+
+- **Status:** DONE
+- **Files:** ackend/ai/citation_verifier.py, ackend/main.py, ackend/tests/test_citation_verifier.py, rontend/app/CitationVerificationTable.tsx, rontend/app/page.tsx, rontend/app/styles.css
+- **What works:** Deterministic citation record ID and source verification against the active evidence ledger; structured field checks (drug_names, metric, cell_line, units, context, values); supports VERIFIED, ID_ONLY, MISMATCH, and UNVERIFIABLE. Fake PMID rejection is tested. Normal Gemma explanations now fully render claim verification results in a detailed status table with summary cards, sticky headers, index, status badge, claim tag, claim text, citation with direct provenance ledger links, individual structured check chips with expected vs actual values, and diagnostic reason codes. The verifier demo provides multi-state testing (VERIFIED, ID_ONLY, MISMATCH, UNVERIFIABLE), fake-PMID rejection testing, re-verification of explanation claims against the current ledger, and a sample grounded explanation with verifiable claims. Free-text scientific entailment is explicitly and prominently disclaimed in both the notice box and limitations list. 13 unit tests pass.
+
 ### Backend compilation and automated test suite
 
 - **Status:** `DONE` for compilation and current automated unit/route suite
