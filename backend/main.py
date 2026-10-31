@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 import time
 from typing import Any
 from fastapi import FastAPI
@@ -73,6 +73,80 @@ async def combinations(q: Pair):
         result["evidence_ledger"],
     )
     return contract(result,t)
+@app.get("/api/combinations/mock-demo")
+def combination_mock_demo():
+    """Clearly labelled mock DrugComb fixture demonstrating cell-line x metric synergy heatmap."""
+    from backend.engines.combination_engine import analyze_combination
+    from backend.engines.synergy_heatmap import build_synergy_heatmap
+    t = time.perf_counter()
+    drug_a = "Gefitinib"
+    drug_b = "Osimertinib"
+    mock_records = [
+        {"source": "DrugComb (Mock)", "source_id": "mock-block-101", "drug_a": drug_a, "drug_b": drug_b,
+         "cell_line": "A549", "metric": "ZIP", "score": 18.5, "reported_interpretation": "synergistic",
+         "study": "DEMO-ALMANAC", "assay": "72h viability", "concentration_a": 1.0, "concentration_b": 2.0,
+         "concentration_unit": "uM", "ratio": "1:2", "url": "https://example.invalid/mock-block-101",
+         "raw_display_permitted": True, "source_record": {"block_id": "mock-101", "metric": "ZIP", "score": 18.5, "cell": "A549"}},
+        {"source": "DrugComb (Mock)", "source_id": "mock-block-102", "drug_a": drug_a, "drug_b": drug_b,
+         "cell_line": "A549", "metric": "Bliss", "score": 8.7, "reported_interpretation": "synergy",
+         "study": "DEMO-ALMANAC", "assay": "72h viability", "concentration_a": 1.0, "concentration_b": 2.0,
+         "concentration_unit": "uM", "ratio": "1:2", "url": "https://example.invalid/mock-block-102",
+         "raw_display_permitted": True, "source_record": {"block_id": "mock-102", "metric": "Bliss", "score": 8.7, "cell": "A549"}},
+        {"source": "DrugComb (Mock)", "source_id": "mock-block-103", "drug_a": drug_a, "drug_b": drug_b,
+         "cell_line": "A549", "metric": "Loewe", "score": 0.2, "reported_interpretation": "additive",
+         "study": "DEMO-ALMANAC", "assay": "72h viability", "concentration_a": 1.0, "concentration_b": 2.0,
+         "concentration_unit": "uM", "ratio": "1:2", "url": "https://example.invalid/mock-block-103",
+         "raw_display_permitted": True, "source_record": {"block_id": "mock-103", "metric": "Loewe", "score": 0.2, "cell": "A549"}},
+        {"source": "DrugComb (Mock)", "source_id": "mock-block-104", "drug_a": drug_a, "drug_b": drug_b,
+         "cell_line": "A549", "metric": "HSA", "score": -16.4, "reported_interpretation": "antagonistic",
+         "study": "DEMO-ALMANAC", "assay": "72h viability", "concentration_a": 1.0, "concentration_b": 2.0,
+         "concentration_unit": "uM", "ratio": "1:2", "url": "https://example.invalid/mock-block-104",
+         "raw_display_permitted": True, "source_record": {"block_id": "mock-104", "metric": "HSA", "score": -16.4, "cell": "A549"}},
+        {"source": "DrugComb (Mock)", "source_id": "mock-block-201", "drug_a": drug_a, "drug_b": drug_b,
+         "cell_line": "MCF7", "metric": "ZIP", "score": 4.6, "reported_interpretation": "positive",
+         "study": "DEMO-ONEIL", "assay": "cell titer", "concentration_a": 0.5, "concentration_b": 1.0,
+         "concentration_unit": "uM", "ratio": "1:2", "url": "https://example.invalid/mock-block-201",
+         "raw_display_permitted": True, "source_record": {"block_id": "mock-201", "metric": "ZIP", "score": 4.6, "cell": "MCF7"}},
+        {"source": "DrugComb (Mock)", "source_id": "mock-block-202", "drug_a": drug_a, "drug_b": drug_b,
+         "cell_line": "MCF7", "metric": "Bliss", "score": -8.4, "reported_interpretation": "antagonistic",
+         "study": "DEMO-ONEIL", "assay": "cell titer", "concentration_a": 0.5, "concentration_b": 1.0,
+         "concentration_unit": "uM", "ratio": "1:2", "url": "https://example.invalid/mock-block-202",
+         "raw_display_permitted": True, "source_record": {"block_id": "mock-202", "metric": "Bliss", "score": -8.4, "cell": "MCF7"}},
+        {"source": "DrugComb (Mock)", "source_id": "mock-block-203", "drug_a": drug_a, "drug_b": drug_b,
+         "cell_line": "MCF7", "metric": "Loewe", "score": 3.1, "reported_interpretation": "positive",
+         "study": "DEMO-ONEIL", "assay": "cell titer", "concentration_a": 0.5, "concentration_b": 1.0,
+         "concentration_unit": "uM", "ratio": "1:2", "url": "https://example.invalid/mock-block-203",
+         "raw_display_permitted": True, "source_record": {"block_id": "mock-203", "metric": "Loewe", "score": 3.1, "cell": "MCF7"}},
+        {"source": "DrugComb (Mock)", "source_id": "mock-block-301", "drug_a": drug_a, "drug_b": drug_b,
+         "cell_line": "H1299", "metric": "ZIP", "score": 9.2, "reported_interpretation": "synergistic",
+         "study": "DEMO-CLOUD-1", "assay": "viability", "concentration_a": 2.0, "concentration_b": 4.0,
+         "concentration_unit": "uM", "ratio": "1:2", "url": "https://example.invalid/mock-block-301",
+         "raw_display_permitted": True, "source_record": {"block_id": "mock-301", "metric": "ZIP", "score": 9.2, "cell": "H1299"}},
+        {"source": "DrugComb (Mock)", "source_id": "mock-block-302", "drug_a": drug_a, "drug_b": drug_b,
+         "cell_line": "H1299", "metric": "ZIP", "score": -2.8, "reported_interpretation": "antagonistic",
+         "study": "DEMO-CLOUD-2", "assay": "colony formation", "concentration_a": 0.2, "concentration_b": 0.5,
+         "concentration_unit": "uM", "ratio": "1:2.5", "url": "https://example.invalid/mock-block-302",
+         "raw_display_permitted": True, "source_record": {"block_id": "mock-302", "metric": "ZIP", "score": -2.8, "cell": "H1299"}},
+        {"source": "DrugComb (Mock)", "source_id": "mock-block-303", "drug_a": drug_a, "drug_b": drug_b,
+         "cell_line": "H1299", "metric": "Bliss", "score": 0.0, "reported_interpretation": "neutral",
+         "study": "DEMO-CLOUD-1", "assay": "viability", "concentration_a": 2.0, "concentration_b": 4.0,
+         "concentration_unit": "uM", "ratio": "1:2", "url": "https://example.invalid/mock-block-303",
+         "raw_display_permitted": True, "source_record": {"block_id": "mock-303", "metric": "Bliss", "score": 0.0, "cell": "H1299"}},
+    ]
+    result = analyze_combination(drug_a, drug_b, mock_records, source_status="available")
+    result["is_mock_fixture"] = True
+    result["fixture_notice"] = "Clearly labelled demonstration fixture: Synthetic DrugComb records demonstrating cell-line x metric synergy heatmap, diverging color-blind-safe styling, context warnings, and provenance ledger audit links. Not live biomedical data."
+    envelope = {"status": "available", "source": "DrugComb (Mock)", "records": mock_records}
+    attach_provenance(result, {"DrugComb": ("DrugComb (Mock)", envelope)})
+    result["evidence_ledger"] = build_evidence_ledger({"evidence": result.get("evidence", [])})
+    result["synergy_heatmap"] = build_synergy_heatmap(
+        result.get("evidence", []), source_status="available"
+    )
+    result["safety"] = {
+        "status": "unavailable", "decision": "REVIEW", "ddi_risk_level": "UNKNOWN",
+        "error": "Drug interaction data requires authorized DrugBank credentials; missing DDI evidence remains UNKNOWN/REVIEW."
+    }
+    return contract(result, t)
 @app.post("/api/safety/evaluate")
 async def safety(q: Pair):
     from backend.engines.safety_engine import evaluate_safety
@@ -205,5 +279,3 @@ def graph(disease: str):
 @app.get("/api/research/report/{report_id}")
 def report(report_id: str):
     t=time.perf_counter(); return contract({"status":"not_found", "report":None, "report_id":report_id},t)
-
-

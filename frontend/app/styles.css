@@ -56,3 +56,33 @@
 .limitations-box ul{margin:0;padding-left:14px}
 .limitations-box li{margin-bottom:2px}
 .drawer-context{margin:14px 0;padding:12px;border:1px solid #e2ebe6;background:#f4f8f6;border-radius:8px}.drawer-context dl{display:grid;grid-template-columns:120px minmax(0,1fr);gap:7px 12px;margin:9px 0;font-size:9px}.drawer-context dt{color:#83918c}.drawer-context dd{margin:0;color:#3f554d;overflow-wrap:anywhere}.drawer-context p{margin:0}.drawer-state{margin:14px 0;padding:12px;border:1px solid #e2ebe6;border-radius:8px;background:#fff;font-size:10px;color:#4b6159}.drawer-state b{display:block;margin-bottom:4px;font-size:11px;color:#37524a}.drawer-state p{margin:0;font-size:9px;line-height:1.55;color:#71817b}.drawer-state.error{border-color:#e8c9bd;background:#fdf6f3}.drawer-state.error b{color:#8a3b1f}
+
+/* Blue-White-Orange Color-Blind-Safe Synergy Heatmap Scale */
+.heatmap-color-orange-deep{background:#fddbc7;border:1.5px solid #d95f02;color:#7f2704;font-weight:600}
+.heatmap-color-orange{background:#fff5eb;border:1.5px solid #f1a340;color:#8c4300}
+.heatmap-color-white{background:#ffffff;border:1.5px solid #cbd5e1;color:#475569}
+.heatmap-color-blue{background:#eff6fb;border:1.5px solid #67a9cf;color:#154c79}
+.heatmap-color-blue-deep{background:#d1e5f0;border:1.5px solid #2166ac;color:#053061;font-weight:600}
+.heatmap-color-neutral{background:#f8faf9;border:1.5px solid #cbd5e1;color:#475569}
+.heatmap-score{display:flex;justify-content:space-between;align-items:center;width:100%;margin:3px 0;padding:5px 7px;border-radius:4px;font:8px 'DM Mono',monospace;cursor:pointer;transition:.15s;text-align:left}
+.heatmap-score:hover{transform:translateY(-1px);box-shadow:0 2px 6px rgba(0,0,0,0.1);filter:brightness(0.97)}
+.heatmap-score .score-num{font-weight:700;font-size:9px}
+.heatmap-score .score-interp{font-size:7.5px;text-transform:capitalize;opacity:0.85}
+
+/* Heatmap Diverging Scale Legend */
+.heatmap-legend-scale{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:10px 0 12px;padding:9px 12px;background:#f8faf9;border:1px solid #e1ece7;border-radius:6px}
+.legend-title{font:600 8px 'DM Mono',monospace;color:#475c56;letter-spacing:0.5px}
+.legend-gradient-bar{display:inline-flex;border-radius:4px;overflow:hidden;border:1px solid #c9d8d2}
+.legend-chip{padding:4px 8px;font:500 8px 'DM Mono',monospace;display:inline-flex;align-items:center;gap:4px}
+.chip-blue-deep{background:#d1e5f0;color:#053061;font-weight:600}
+.chip-blue{background:#eff6fb;color:#154c79}
+.chip-white{background:#ffffff;color:#475569}
+.chip-orange{background:#fff5eb;color:#8c4300}
+.chip-orange-deep{background:#fddbc7;color:#7f2704;font-weight:600}
+.chip-nodata{background:#ecefee;border:1px dashed #b9c4bf;color:#697671;border-radius:4px;padding:3px 7px}
+.dash-indicator{display:inline-block;width:11px;height:9px;border:1px dashed #7a8c86;background:#e5ebe8;border-radius:2px}
+
+/* Clearly Labelled Mock Fixture Banner */
+.mock-fixture-banner{margin:12px 0;padding:10px 14px;background:#fefbf4;border:1px solid #f6e5bf;border-left:4px solid #d97706;border-radius:6px;display:flex;align-items:flex-start;gap:10px;font-size:9.5px;color:#75561a}
+.mock-fixture-banner p{margin:2px 0 0;line-height:1.5;color:#856424}
+.mock-fixture-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
