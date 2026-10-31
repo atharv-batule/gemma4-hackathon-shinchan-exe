@@ -1,0 +1,350 @@
+<?xml version='1.0' encoding='utf-8'?>
+<codex_project_prompt project="DrugDiscover AI" version="1.0" deadline_hours="4" purpose="Multi-agent AI drug repurposing, drug combination, molecular validation and safety research platform">
+  <identity>DrugDiscover AI</identity>
+  <tagline>Discover potential drug combinations. Validate molecular evidence. Explain scientific possibilities.</tagline>
+  <project_vision>
+    <objective>Build an evidence-driven research platform connecting drug repurposing, experimental drug-combination analysis, molecular validation, interaction screening and Gemma 4 explanations.</objective>
+    <capability>Identify existing drugs that may merit investigation for a disease.</capability>
+    <capability>Retrieve experimentally documented drug-combination evidence.</capability>
+    <capability>Validate chemical structures and calculate molecular properties.</capability>
+    <capability>Retrieve known drug-drug interaction warnings where accessible.</capability>
+    <capability>Explain evidence, uncertainty and research hypotheses.</capability>
+  </project_vision>
+  <multi_agent_team>
+    <agent id="agent_1" role="Biomedical Data and API Specialist">
+      <responsibility>Integrate ChEMBL for drug-target and bioactivity information.</responsibility>
+      <responsibility>Integrate PubChem for chemical identifiers, SMILES and molecular properties.</responsibility>
+      <responsibility>Integrate DrugComb for experimental combination evidence and synergy measurements.</responsibility>
+      <responsibility>Integrate PubMed for published research.</responsibility>
+      <responsibility>Integrate DrugBank only where authorised access is available for interaction information.</responsibility>
+      <responsibility>Integrate DGIdb for drug-gene relationships and ZINC for screening compounds.</responsibility>
+      <responsibility>Verify API access, licensing, authentication, rate limits and data provenance.</responsibility>
+      <responsibility>Never fabricate API results.</responsibility>
+      <deliverables>
+        <file>backend/services/chembl_service.py</file>
+        <file>backend/services/pubchem_service.py</file>
+        <file>backend/services/drugcomb_service.py</file>
+        <file>backend/services/pubmed_service.py</file>
+        <file>backend/services/drugbank_service.py</file>
+        <file>backend/services/dgidb_service.py</file>
+        <file>backend/services/zinc_service.py</file>
+        <file>backend/services/biomedical_data.py</file>
+      </deliverables>
+    </agent>
+    <agent id="agent_2" role="Drug Repurposing Engine Developer">
+      <responsibility>Accept a disease query and retrieve disease-associated genes and targets.</responsibility>
+      <responsibility>Retrieve drugs associated with those targets and analyse known mechanisms.</responsibility>
+      <responsibility>Retrieve pathway and publication evidence.</responsibility>
+      <responsibility>Rank candidates using transparent dimensions: biological relevance, drug-target evidence, experimental evidence, preclinical evidence, clinical evidence and data completeness.</responsibility>
+      <responsibility>Do not treat target associations or docking scores as proof of therapeutic efficacy.</responsibility>
+      <deliverables>
+        <file>backend/engines/repurposing_engine.py</file>
+        <file>backend/engines/target_analysis.py</file>
+        <file>backend/services/pathway_analysis.py</file>
+        <file>backend/tests/test_repurposing.py</file>
+      </deliverables>
+    </agent>
+    <agent id="agent_3" role="Drug Combination and Safety Specialist">
+      <responsibility>Resolve and standardise drug identities before analysis.</responsibility>
+      <responsibility>Retrieve experimental combination records, synergy metrics, cell lines and experimental conditions.</responsibility>
+      <responsibility>Interpret ZIP, Bliss, Loewe and HSA only when source data supports them.</responsibility>
+      <responsibility>Check known DDI warnings, toxicity, pharmacokinetic and pharmacodynamic interactions where evidence is available.</responsibility>
+      <responsibility>Track experimental concentrations and ratios; never assume a universal 1:1 ratio.</responsibility>
+      <responsibility>Distinguish GO, REVIEW and NO-GO as computational workflow decisions only.</responsibility>
+      <responsibility>If safety evidence is unavailable, return UNKNOWN or REVIEW rather than Low risk.</responsibility>
+      <responsibility>Never provide patient-specific doses or treatment recommendations.</responsibility>
+      <deliverables>
+        <file>backend/engines/combination_engine.py</file>
+        <file>backend/engines/safety_engine.py</file>
+        <file>backend/engines/ddi_engine.py</file>
+        <file>backend/engines/ratio_analysis.py</file>
+        <file>backend/tests/test_combination.py</file>
+        <file>backend/tests/test_safety.py</file>
+      </deliverables>
+    </agent>
+    <agent id="agent_4" role="Molecular Structure and ADMET Specialist">
+      <responsibility>Use RDKit to parse and validate SMILES, SDF and MOL structures.</responsibility>
+      <responsibility>Calculate molecular weight, LogP, H-bond donors and acceptors, TPSA and rotatable bonds.</responsibility>
+      <responsibility>Implement Lipinski screening and available structural-alert checks.</responsibility>
+      <responsibility>Distinguish measured ADMET data from computational predictions.</responsibility>
+      <responsibility>Treat fragment reconstruction as optional and only create chemically valid, explicitly justified structures.</responsibility>
+      <responsibility>Never identify a known drug from fragment resemblance alone.</responsibility>
+      <responsibility>Treat AutoDock Vina docking as an optional extension and docking scores as estimates, not proof of activity.</responsibility>
+      <deliverables>
+        <file>backend/engines/molecular_engine.py</file>
+        <file>backend/engines/admet_engine.py</file>
+        <file>backend/services/rdkit_service.py</file>
+        <file>backend/services/docking_service.py</file>
+        <file>backend/tests/test_molecular.py</file>
+      </deliverables>
+    </agent>
+    <agent id="agent_5" role="Gemma 4 AI Research Assistant">
+      <responsibility>Integrate Gemma 4 through a configurable local or remote inference provider.</responsibility>
+      <responsibility>Use GEMMA_MODEL, GEMMA_BASE_URL and GEMMA_API_KEY environment variables.</responsibility>
+      <responsibility>Generate evidence-grounded explanations for repurposing, combinations, interactions, molecular properties and research hypotheses.</responsibility>
+      <responsibility>Use structured JSON outputs and schema validation.</responsibility>
+      <responsibility>Preserve citations and explicitly report missing or conflicting evidence.</responsibility>
+      <responsibility>Never invent drug interactions, SMILES, properties, synergy scores or citations.</responsibility>
+      <responsibility>Do not expose private chain-of-thought; provide concise auditable evidence summaries.</responsibility>
+      <deliverables>
+        <file>backend/ai/gemma_service.py</file>
+        <file>backend/ai/prompts.py</file>
+        <file>backend/ai/response_schemas.py</file>
+        <file>backend/tests/test_gemma.py</file>
+      </deliverables>
+    </agent>
+    <agent id="agent_6" role="Frontend and UX Specialist">
+      <responsibility>Build a responsive Next.js, React, TypeScript and Tailwind dashboard.</responsibility>
+      <responsibility>Create Dashboard, Drug Repurposing, Drug Combination Analysis, Molecular Analysis, Drug Safety, Knowledge Graph, Evidence Explorer and AI Assistant pages.</responsibility>
+      <responsibility>Show real backend data, evidence provenance, warnings, experimental ratios and synergy context.</responsibility>
+      <responsibility>Use charts and graph visualisations where useful.</responsibility>
+      <responsibility>Do not display fabricated statistics or unsupported medical claims.</responsibility>
+      <deliverables>
+        <file>frontend/app/</file>
+        <file>frontend/components/</file>
+        <file>frontend/lib/</file>
+        <file>frontend/styles/</file>
+      </deliverables>
+    </agent>
+  </multi_agent_team>
+  <orchestrator>
+    <instruction>Inspect the repository before changing files.</instruction>
+    <instruction>Create AGENTS.md, skills.md and the reusable Agent Skill before implementation.</instruction>
+    <instruction>Assign clear file ownership and prevent conflicting edits.</instruction>
+    <instruction>Delegate independent tasks and integrate their outputs.</instruction>
+    <instruction>If multi-agent delegation is unavailable, execute workstreams sequentially without claiming agents were spawned.</instruction>
+    <instruction>Run tests and verify the complete workflow.</instruction>
+    <instruction>Do not overwrite user files without inspecting them.</instruction>
+    <instruction>Do not claim tests or integrations succeeded unless actually verified.</instruction>
+  </orchestrator>
+  <main_constraints>
+    <constraint name="dangerous_drug_interactions">
+      <rule>Two individually safe medicines may produce harmful effects when combined.</rule>
+      <rule>Interactions may increase toxicity or reduce effectiveness.</rule>
+      <rule>Check known DDI sources and metabolic or pharmacodynamic warnings where supported.</rule>
+      <rule>Absence of a database warning does not establish safety.</rule>
+      <rule>Unavailable interaction evidence must be classified UNKNOWN or REVIEW.</rule>
+    </constraint>
+    <constraint name="effectiveness_is_difficult_to_predict">
+      <rule>A theoretical biological mechanism does not prove clinical effectiveness.</rule>
+      <rule>Separate computational, docking, in-vitro, animal and human clinical evidence.</rule>
+    </constraint>
+    <constraint name="incomplete_or_conflicting_combination_evidence">
+      <rule>Not every drug combination has been studied.</rule>
+      <rule>Some results may be contradictory or context-dependent.</rule>
+      <rule>Show missing evidence and conflicting findings; do not infer that missing means ineffective.</rule>
+    </constraint>
+    <constraint name="drug_quantity_and_ratio">
+      <rule>Concentration and ratio can change combination outcomes.</rule>
+      <rule>Retrieve experimental concentrations, units, dose ranges and ratios when available.</rule>
+      <rule>Compare only compatible experimental contexts.</rule>
+      <rule>Never present experimental ratios as clinical dosing recommendations.</rule>
+    </constraint>
+    <constraint name="data_availability">
+      <rule>Some pharmaceutical databases restrict API access.</rule>
+      <rule>Use public APIs where possible, respect licensing and provide transparent fallbacks.</rule>
+    </constraint>
+    <constraint name="data_accuracy">
+      <rule>Research may be outdated, incomplete or contradictory.</rule>
+      <rule>Record dates, preserve source identifiers, deduplicate and prioritise traceable research.</rule>
+    </constraint>
+    <constraint name="drug_identification">
+      <rule>Medicines may have similar names, synonyms, salt forms or formulations.</rule>
+      <rule>Resolve using standard identifiers such as ChEMBL ID, PubChem CID and DrugBank ID where available.</rule>
+      <rule>Check active ingredients, stereochemistry and canonical SMILES where available.</rule>
+    </constraint>
+    <constraint name="additional_constraints">
+      <rule>Gemma hallucinations and outdated knowledge.</rule>
+      <rule>Limited computing resources and API rate limits.</rule>
+      <rule>Missing protein structures and invalid molecular reconstructions.</rule>
+      <rule>Incompatible synergy metrics and cell-line differences.</rule>
+      <rule>Incomplete toxicity information and lack of wet-lab validation.</rule>
+      <rule>Database licensing and reproducibility limitations.</rule>
+    </constraint>
+  </main_constraints>
+  <signature_feature name="Repurposing-to-Combination Intelligence Engine">
+    <pipeline_step>Disease query</pipeline_step>
+    <pipeline_step>Disease-associated genes and proteins</pipeline_step>
+    <pipeline_step>Drug-target relationships</pipeline_step>
+    <pipeline_step>Drug repurposing candidates</pipeline_step>
+    <pipeline_step>Molecular validation</pipeline_step>
+    <pipeline_step>Drug combination investigation</pipeline_step>
+    <pipeline_step>Experimental synergy evidence</pipeline_step>
+    <pipeline_step>Drug interaction screening</pipeline_step>
+    <pipeline_step>Concentration and ratio analysis</pipeline_step>
+    <pipeline_step>Gemma 4 scientific explanation</pipeline_step>
+    <pipeline_step>Evidence-backed research hypothesis</pipeline_step>
+    <scientific_caveat>Complementary biological targets do not prove synergy or clinical benefit.</scientific_caveat>
+  </signature_feature>
+  <data_sources>
+    <source requirement="Experimental combination evidence" name="DrugComb" />
+    <source requirement="Drug information and chemical properties" name="PubChem" />
+    <source requirement="Drug-target information and bioactivity" name="ChEMBL" />
+    <source requirement="Published research" name="PubMed" />
+    <source requirement="Known interaction warnings, if authorised" name="DrugBank" />
+    <source requirement="Drug-gene relationships" name="DGIdb" />
+    <source requirement="Chemical screening compounds" name="ZINC" />
+    <source requirement="Protein structures" name="RCSB PDB" />
+    <source requirement="Optional target-disease evidence" name="Open Targets" />
+    <source requirement="Optional protein information" name="UniProt" />
+    <source requirement="Optional pathways" name="Reactome" />
+  </data_sources>
+  <molecular_validation>
+    <capability>SMILES parsing and validation</capability>
+    <capability>Molecular weight</capability>
+    <capability>LogP</capability>
+    <capability>Hydrogen bond donors</capability>
+    <capability>Hydrogen bond acceptors</capability>
+    <capability>TPSA</capability>
+    <capability>Rotatable bonds</capability>
+    <capability>Lipinski Rule of Five</capability>
+    <capability>Structural alerts where supported</capability>
+    <capability>Explicit missing-value handling</capability>
+    <rule>Never invent missing chemical properties. RDKit parse success does not mean a molecule is safe.</rule>
+  </molecular_validation>
+  <api_output_contract>
+    <format>JSON</format>
+    <required_top_level_fields>status, pipeline_latency_ms, data</required_top_level_fields>
+    <safety_evaluation>
+      <field name="decision" allowed_values_or_meaning="GO | REVIEW | NO-GO" />
+      <field name="decision_scope" allowed_values_or_meaning="Computational research screening only" />
+      <field name="flagged_toxicophores" allowed_values_or_meaning="true | false | null" />
+      <field name="ddi_risk_level" allowed_values_or_meaning="Low | Moderate | High | UNKNOWN" />
+    </safety_evaluation>
+    <section>reasoning_trace</section>
+    <section>reconstructed_molecules</section>
+    <section>combination_analysis</section>
+    <section>research_hypothesis</section>
+    <section>citations</section>
+    <rule>Unknown evidence remains UNKNOWN; missing values remain null; latency must be measured; no fabricated reasoning traces or citations.</rule>
+  </api_output_contract>
+  <technical_architecture>
+    <backend>Python + FastAPI + Pydantic + SQLite</backend>
+    <frontend>Next.js + React + TypeScript + Tailwind CSS</frontend>
+    <ai>Gemma 4 via configurable inference provider</ai>
+    <chemistry>RDKit</chemistry>
+    <visualisation>Recharts and React Flow or equivalent</visualisation>
+    <directory_or_file>backend/main.py</directory_or_file>
+    <directory_or_file>backend/api/</directory_or_file>
+    <directory_or_file>backend/engines/</directory_or_file>
+    <directory_or_file>backend/services/</directory_or_file>
+    <directory_or_file>backend/ai/</directory_or_file>
+    <directory_or_file>backend/models/</directory_or_file>
+    <directory_or_file>backend/utils/</directory_or_file>
+    <directory_or_file>backend/tests/</directory_or_file>
+    <directory_or_file>frontend/app/</directory_or_file>
+    <directory_or_file>frontend/components/</directory_or_file>
+    <directory_or_file>frontend/lib/</directory_or_file>
+    <directory_or_file>frontend/styles/</directory_or_file>
+  </technical_architecture>
+  <api_endpoints>
+    <endpoint method="GET" path="/health" />
+    <endpoint method="GET" path="/api/diseases/search" />
+    <endpoint method="GET" path="/api/drugs/search" />
+    <endpoint method="POST" path="/api/repurposing/analyze" />
+    <endpoint method="POST" path="/api/combinations/analyze" />
+    <endpoint method="POST" path="/api/safety/evaluate" />
+    <endpoint method="POST" path="/api/molecular/validate" />
+    <endpoint method="POST" path="/api/discovery/combined" />
+    <endpoint method="POST" path="/api/ai/explain" />
+    <endpoint method="GET" path="/api/evidence/{candidate_id}" />
+    <endpoint method="GET" path="/api/knowledge-graph/{disease}" />
+    <endpoint method="GET" path="/api/research/report/{report_id}" />
+  </api_endpoints>
+  <project_instructions_files>
+    <agents_file>AGENTS.md</agents_file>
+    <skills_catalogue>skills.md</skills_catalogue>
+    <reusable_agent_skill path=".agents/skills/drug-discovery/SKILL.md">
+      <name>drug-discovery</name>
+      <description>Build evidence-grounded drug repurposing, drug combination, molecular validation and biomedical research workflows using Gemma 4.</description>
+      <topic>Biomedical data retrieval and identifier standardisation</topic>
+      <topic>SMILES validation and molecular property calculation</topic>
+      <topic>Synergy metric and experimental ratio interpretation</topic>
+      <topic>Drug interaction evidence retrieval</topic>
+      <topic>Evidence classification and provenance</topic>
+      <topic>Grounded Gemma prompts and scientific claim validation</topic>
+      <topic>Missing and contradictory evidence handling</topic>
+    </reusable_agent_skill>
+  </project_instructions_files>
+  <testing_requirements>
+    <test_case id="valid_invalid_smiles">Test valid and invalid chemical structures.</test_case>
+    <test_case id="drug_identity">Test identifier resolution and formulation distinctions.</test_case>
+    <test_case id="molecular_properties">Test RDKit property calculations and null handling.</test_case>
+    <test_case id="repurposing">Test drug-target retrieval and candidate ranking.</test_case>
+    <test_case id="combination">Test experimental combination retrieval.</test_case>
+    <test_case id="synergy">Test metric interpretation and experimental context.</test_case>
+    <test_case id="ratio">Test dose and ratio handling without clinical dosing claims.</test_case>
+    <test_case id="ddi">Test known warnings and unavailable interaction evidence.</test_case>
+    <test_case id="conflicting_evidence">Show separate findings across cell lines and contradictory studies.</test_case>
+    <test_case id="fragment_reconstruction">Reject unsupported or chemically invalid reconstruction.</test_case>
+    <test_case id="gemma_schema">Validate structured model output.</test_case>
+    <test_case id="citations">Verify source references.</test_case>
+    <test_case id="api_failure">Test external API failure and fallback behaviour.</test_case>
+  </testing_requirements>
+  <four_hour_priorities>
+    <priority level="P0">
+      <task>Project setup and instruction files</task>
+      <task>Biomedical API integration</task>
+      <task>Drug search</task>
+      <task>Drug repurposing</task>
+      <task>Drug combination evidence retrieval</task>
+      <task>Basic safety screening</task>
+      <task>Gemma 4 integration</task>
+    </priority>
+    <priority level="P1">
+      <task>RDKit validation</task>
+      <task>Drug ratio comparison</task>
+      <task>Evidence classification</task>
+      <task>Synergy visualisation</task>
+      <task>Combined discovery workflow</task>
+    </priority>
+    <priority level="P2">
+      <task>Molecular docking</task>
+      <task>Protein-ligand 3D visualisation</task>
+      <task>Fragment reconstruction</task>
+      <task>Advanced ADMET</task>
+      <task>Advanced knowledge graph</task>
+    </priority>
+  </four_hour_priorities>
+  <final_deliverables>
+    <deliverable>Working source code</deliverable>
+    <deliverable>AGENTS.md</deliverable>
+    <deliverable>skills.md</deliverable>
+    <deliverable>.agents/skills/drug-discovery/SKILL.md</deliverable>
+    <deliverable>README.md</deliverable>
+    <deliverable>.env.example</deliverable>
+    <deliverable>Frontend and backend</deliverable>
+    <deliverable>API documentation</deliverable>
+    <deliverable>Automated tests</deliverable>
+    <deliverable>Clearly labelled sample demonstration data</deliverable>
+    <deliverable>Architecture diagram</deliverable>
+    <deliverable>Setup instructions</deliverable>
+    <deliverable>Two-minute hackathon demonstration script</deliverable>
+    <deliverable>Implementation report with verified integrations, test results and limitations</deliverable>
+  </final_deliverables>
+  <execution_instructions>
+    <step>Inspect repository and existing files.</step>
+    <step>Create AGENTS.md, skills.md and reusable SKILL.md.</step>
+    <step>Establish architecture and delegate tasks to six agents.</step>
+    <step>Build backend and frontend in parallel where possible.</step>
+    <step>Integrate biomedical APIs and Gemma 4.</step>
+    <step>Implement the Repurposing-to-Combination Intelligence Engine.</step>
+    <step>Implement molecular validation and safety screening.</step>
+    <step>Run tests and fix integration errors.</step>
+    <step>Prepare the live demonstration.</step>
+    <step>If a service is unavailable, use a transparent, clearly labelled fallback.</step>
+    <step>Do not stop after writing a plan; implement the working MVP.</step>
+    <step>Do not claim tests or integrations succeeded unless verified.</step>
+  </execution_instructions>
+  <success_criteria>
+    <criterion>User can enter a disease and retrieve potential repurposing candidates.</criterion>
+    <criterion>User can inspect biological targets and evidence.</criterion>
+    <criterion>User can select two drugs and investigate experimental combinations.</criterion>
+    <criterion>User can compare available synergy metrics and experimental ratios.</criterion>
+    <criterion>User can validate molecular structures using RDKit.</criterion>
+    <criterion>User can review known interaction warnings and missing safety evidence.</criterion>
+    <criterion>User can inspect conflicting evidence and source citations.</criterion>
+    <criterion>User can request an evidence-grounded Gemma 4 explanation.</criterion>
+    <criterion>User can generate a research report.</criterion>
+  </success_criteria>
+</codex_project_prompt>

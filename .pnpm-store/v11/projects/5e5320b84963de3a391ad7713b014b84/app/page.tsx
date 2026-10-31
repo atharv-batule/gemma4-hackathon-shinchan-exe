@@ -1,0 +1,243 @@
+"use client";
+
+import { FormEvent, useEffect, useMemo, useState } from "react";
+
+type Evidence = Record<string, any>;
+type Candidate = {
+  drug_name: string;
+  drug_id?: string | null;
+  targets?: string[];
+  disease_associations?: Evidence[];
+  evidence?: Evidence[];
+  evidence_completeness_score?: number;
+  score_interpretation?: string;
+  evidence_level?: string;
+};
+type Result = {
+  status?: string;
+  pipeline_latency_ms?: number;
+  data?: {
+    query?: string;
+    candidates?: Candidate[];
+    targets?: Evidence[];
+    publications?: Evidence[];
+    sources?: Record<string, Evidence>;
+    evidence_ledger?: Evidence[];
+    source_checks?: Record<string, Evidence>;
+    limitations?: string[];
+  };
+  [key: string]: any;
+};
+
+const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+async function api(path: string, body?: unknown) {
+  const response = await fetch(`${API}${path}`, {
+    method: body ? "POST" : "GET",
+    headers: body ? { "Content-Type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!response.ok) throw new Error(`API ${response.status}: ${response.statusText}`);
+  return response.json();
+}
+
+function Badge({ children, kind = "muted" }: { children: React.ReactNode; kind?: string }) {
+  return <span className={`badge ${kind}`}>{children}</span>;
+}
+
+function PanelTitle({ kicker, title, note }: { kicker: string; title: string; note?: string }) {
+  return <div className="panel-title"><div><span className="eyebrow">{kicker}</span><h2>{title}</h2></div>{note && <p>{note}</p>}</div>;
+}
+
+function display(value: unknown) {
+  if (value === null || value === undefined || value === "") return "Not reported";
+  return typeof value === "object" ? JSON.stringify(value) : String(value);
+}
+
+function reportedLabelClass(label: unknown) {
+  if (typeof label !== "string") return "heatmap-label-unknown";
+  const value = label.toLocaleLowerCase();
+  if (["synergy", "synergistic", "positive"].includes(value)) return "heatmap-label-positive";
+  if (["antagonism", "antagonistic", "negative"].includes(value)) return "heatmap-label-negative";
+  if (["additive", "neutral"].includes(value)) return "heatmap-label-additive";
+  return "heatmap-label-unknown";
+}
+
+function SourceLink({ url, label = "Open source record" }: { url?: unknown; label?: string }) {
+  return typeof url === "string" && url.startsWith("https://")
+    ? <a href={url} target="_blank" rel="noreferrer">{label}</a>
+    : <span>Source URL not supplied</span>;
+}
+
+export default function Home() {
+  const [disease, setDisease] = useState("");
+  const [result, setResult] = useState<Result | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [selected, setSelected] = useState<Candidate | null>(null);
+  const [drugA, setDrugA] = useState("");
+  const [drugB, setDrugB] = useState("");
+  const [combo, setCombo] = useState<any>(null);
+  const [comboBusy, setComboBusy] = useState(false);
+  const [identity, setIdentity] = useState<any>(null);
+  const [identityBusy, setIdentityBusy] = useState(false);
+  const [smiles, setSmiles] = useState("");
+  const [molecule, setMolecule] = useState<any>(null);
+  const [molBusy, setMolBusy] = useState(false);
+  const [explanation, setExplanation] = useState<any>(null);
+  const [explainBusy, setExplainBusy] = useState(false);
+  const [citationDemo, setCitationDemo] = useState<any>(null);
+  const [citationDemoBusy, setCitationDemoBusy] = useState(false);
+  const [health, setHealth] = useState<any>(null);
+  const [provenanceOpen, setProvenanceOpen] = useState(false);
+  const [provenanceRecordId, setProvenanceRecordId] = useState<string | null>(null);
+
+  const candidates = result?.data?.candidates || [];
+  const targets = result?.data?.targets || [];
+  const sources = Object.entries(result?.data?.sources || {});
+  const evidenceCount = useMemo(() => candidates.reduce((sum, candidate) => sum + (candidate.evidence?.length || 0), 0), [candidates]);
+  const evidenceLedger: Evidence[] = useMemo(() => {
+    const ledgers = [result?.evidence_ledger || result?.data?.evidence_ledger, combo?.evidence_ledger,
+      ...(identity?.queries || []).map((item: Evidence) => item.response?.evidence_ledger)];
+    const unique = new Map<string, Evidence>();
+    ledgers.flatMap(value => Array.isArray(value) ? value : []).forEach((record: Evidence, index: number) => {
+      unique.set(record.record_id || `${record.source || "record"}-${record.source_id || index}`, record);
+    });
+    return Array.from(unique.values());
+  }, [result, combo, identity]);
+  const sourceChecks: Record<string, Evidence> = { ...(result?.source_checks || result?.data?.source_checks || {}), ...(health?.source_checks || {}) };
+  const drawerRecords = provenanceRecordId
+    ? evidenceLedger.filter(record => record.record_id === provenanceRecordId || record.source_id === provenanceRecordId)
+    : evidenceLedger;
+
+  function openProvenance(sourceId?: string) {
+    setProvenanceRecordId(sourceId || null);
+    setProvenanceOpen(true);
+  }
+
+  useEffect(() => {
+    let active = true;
+    api("/health").then(value => { if (active) setHealth(value); }).catch(() => { if (active) setHealth({ status: "unavailable", error: "Health endpoint could not be reached." }); });
+    return () => { active = false; };
+  }, []);
+
+  async function analyze(event: FormEvent) {
+    event.preventDefault();
+    if (!disease.trim()) return;
+    setBusy(true); setError(""); setResult(null); setSelected(null); setExplanation(null);
+    try {
+      const response = await api("/api/discovery/combined", { disease: disease.trim() });
+      setResult(response);
+      try { setHealth(await api("/health")); } catch { /* keep the completed workflow response */ }
+    }
+    catch (err) { setError(err instanceof Error ? err.message : "Could not reach the research API."); }
+    finally { setBusy(false); }
+  }
+
+  async function analyzeCombo(event: FormEvent) {
+    event.preventDefault();
+    if (!drugA.trim() || !drugB.trim()) return;
+    setComboBusy(true); setCombo(null);
+    const pair = { drug_a: drugA.trim(), drug_b: drugB.trim() };
+    const [comboResponse, safetyResponse] = await Promise.allSettled([
+      api("/api/combinations/analyze", pair), api("/api/safety/evaluate", pair),
+    ]);
+    const combination = comboResponse.status === "fulfilled" ? comboResponse.value : {
+      status: "unavailable", error: comboResponse.reason instanceof Error ? comboResponse.reason.message : "Combination provider request failed",
+    };
+    const safety = safetyResponse.status === "fulfilled" ? safetyResponse.value : {
+      status: "unavailable", ddi_risk_level: "UNKNOWN", decision: "REVIEW",
+      error: safetyResponse.reason instanceof Error ? safetyResponse.reason.message : "Safety provider request failed",
+    };
+    setCombo({ ...combination, safety });
+    try { setHealth(await api("/health")); } catch { /* preserve separate combo and safety results */ }
+    setComboBusy(false);
+  }
+
+  async function resolveIdentities() {
+    const queries = [{ side: "A", query: drugA.trim() }, { side: "B", query: drugB.trim() }].filter(item => item.query);
+    if (!queries.length) return;
+    setIdentityBusy(true); setIdentity(null);
+    try {
+      const resolved = await Promise.all(queries.map(async item => ({
+        ...item, response: await api(`/api/drugs/search?q=${encodeURIComponent(item.query)}`),
+      })));
+      setIdentity({ queries: resolved });
+    } catch (err) { setIdentity({ error: err instanceof Error ? err.message : "Request failed" }); }
+    finally { setIdentityBusy(false); }
+  }
+
+  async function validateMolecule(event: FormEvent) {
+    event.preventDefault();
+    if (!smiles.trim()) return;
+    setMolBusy(true); setMolecule(null);
+    try { setMolecule(await api("/api/molecular/validate", { smiles: smiles.trim() })); }
+    catch (err) { setMolecule({ status: "unavailable", error: err instanceof Error ? err.message : "Request failed" }); }
+    finally { setMolBusy(false); }
+  }
+
+  async function explain() {
+    if (!result) return;
+    setExplainBusy(true); setExplanation(null);
+    try { setExplanation(await api("/api/ai/explain", { evidence: result, selected_candidate: selected })); }
+    catch (err) { setExplanation({ status: "unavailable", error: err instanceof Error ? err.message : "Request failed" }); }
+    finally { setExplainBusy(false); }
+  }
+
+  async function runFakeCitationCheck() {
+    setCitationDemoBusy(true); setCitationDemo(null);
+    try {
+      setCitationDemo(await api("/api/ai/verify-claims", { claims: [{
+        claim_text: "Synthetic test claim with a deliberately nonexistent PMID.",
+        citation: { source: "PubMed", record_id: "PMID:FAKE-TEST-0001" },
+        claim_tag: "sourced", details: {},
+      }], evidence_ledger: evidenceLedger }));
+    } catch (err) { setCitationDemo({ status: "unavailable", reason: err instanceof Error ? err.message : "Verifier endpoint unavailable" }); }
+    finally { setCitationDemoBusy(false); }
+  }
+
+  return <main className="app-shell">
+    <aside className="sidebar">
+      <a className="brand" href="#top"><span className="brand-mark">D<span>+</span></span><span>DrugDiscover<small>RESEARCH WORKSPACE</small></span></a>
+      <div className="side-label">WORKSPACE</div><a className="nav active" href="#discovery">Repurposing</a>
+      <a className="nav" href="#combinations">Combination analysis</a><a className="nav" href="#molecular">Molecular validation</a>
+      <div className="side-label sources-label">PROVIDER STATUS</div><div className="source-side"><i className={health?.status === "ok" ? "" : "dim"}/> Health <small>{health?.status || "checking"}</small></div>
+      <div className="sidebar-bottom"><div className="shield">!</div><div><b>Research screening only</b><p>Not medical advice or a treatment recommendation.</p></div></div>
+    </aside>
+    <section className="main-area" id="top">
+      <header className="topbar"><div className="crumb">Workspace <span>/</span> Discovery</div><div className="top-right"><span className="system-dot"/> API <code>{API.replace(/^https?:\/\//, "")}</code></div></header>
+      <div className="content">
+        <div className="hero-row"><div><div className="eyebrow"><span className="pulse"/> EVIDENCE-LED DISCOVERY</div><h1>Follow the biology.<br/><em>Interrogate the evidence.</em></h1><p className="hero-copy">Explore target-linked repurposing hypotheses and investigate experimental drug combinations, one source at a time.</p></div><div className="hero-art" aria-hidden="true"><div className="orb orb-a"/><div className="orb orb-b"/><div className="orb orb-c"/><div className="orbit orbit-a"/><div className="orbit orbit-b"/></div></div>
+        <section className="query-card" id="discovery"><div className="step"><span>01</span> DISEASE-TO-TARGET INVESTIGATION</div><form onSubmit={analyze} className="query-form"><label htmlFor="disease">Disease or condition</label><div className="input-action"><input id="disease" placeholder="e.g. non-small cell lung cancer" value={disease} onChange={event => setDisease(event.target.value)} required/><button disabled={busy}>{busy ? <><span className="spinner"/> Searching sources</> : "Analyze evidence"}</button></div><div className="form-hint">Queries public biomedical providers where available. Results depend on current provider access.</div></form></section>
+        {error && <div className="error-box">Could not complete analysis: {error}</div>}
+        {busy && <div className="loading-card"><span className="spinner dark"/><div><b>Checking biomedical sources</b><p>Collecting available target, drug and publication records.</p></div></div>}
+        {result && <>
+          <section className="panel source-review"><div className="panel-title"><div><span className="eyebrow">RUN TRACE</span><h2>What we could not check</h2></div><button type="button" className="secondary-btn" onClick={() => openProvenance()}>Open provenance ledger ({evidenceLedger.length})</button></div><div className="source-check-list">{Object.entries(sourceChecks).length ? Object.entries(sourceChecks).map(([name, check]) => <div className="source-check" key={name}><Badge kind={check.state === "CHECKED_FOUND" ? "good" : check.state === "CHECKED_EMPTY" ? "muted" : "warning"}>{name}: {check.state || "NOT_CHECKED"}</Badge><span>{check.record_count == null ? "Record count not reported" : `${check.record_count} records`}</span>{check.reason && <p>{String(check.reason)}</p>}</div>) : <p className="limitation">This run did not return source-check details. No provider check is assumed from missing status.</p>}</div></section>
+          <section className="metrics-row"><div className="metric-card"><span className="metric-icon teal">D</span><div><small>DRUG CANDIDATES</small><strong>{candidates.length}</strong><span>source-linked hypotheses</span></div></div><div className="metric-card"><span className="metric-icon blue">T</span><div><small>ASSOCIATED TARGETS</small><strong>{targets.length}</strong><span>reported links</span></div></div><div className="metric-card"><span className="metric-icon violet">E</span><div><small>EVIDENCE RECORDS</small><strong>{evidenceCount + (result.data?.publications?.length || 0)}</strong><span>retrieved in this query</span></div></div><div className="metric-card"><span className="metric-icon amber">t</span><div><small>PIPELINE TIME</small><strong>{result.pipeline_latency_ms ?? "?"}<small className="unit"> ms</small></strong><span>measured request latency</span></div></div></section>
+          <section className="panel results-panel"><PanelTitle kicker="REPURPOSING HYPOTHESES" title="Candidate evidence" note="Ranked by available record coverage. This is not an efficacy score."/>
+            <div className="source-strip"><span>DATA SOURCES</span>{sources.length ? sources.map(([name, state]) => <div className="provider-status" key={name}><Badge kind={state.status === "available" ? "good" : "warning"}>{name.replaceAll("_", " ")} · {state.status}{state.record_count != null ? ` · ${state.record_count} records` : ""}</Badge>{state.detail && <small>{String(state.detail)}</small>}{state.matches?.length ? <small>Matches: {state.matches.map((match: Evidence) => `${match.disease_name || "disease"} (${match.disease_id || "ID unavailable"})`).join("; ")}</small> : null}</div>) : <span>Provider status not returned.</span>}</div>
+            {candidates.length ? <div className="candidate-list">{candidates.map((candidate, index) => <article className={`candidate ${selected?.drug_id === candidate.drug_id ? "selected" : ""}`} key={`${candidate.drug_id || candidate.drug_name}-${index}`} onClick={() => setSelected(candidate)}><div className="candidate-index">{String(index + 1).padStart(2, "0")}</div><div className="candidate-main"><div className="candidate-name">{candidate.drug_name} {candidate.drug_id && <Badge>{candidate.drug_id}</Badge>}</div><div className="candidate-meta">Targets: {candidate.targets?.length ? candidate.targets.join(", ") : "not reported"}</div><div className="candidate-meta">Evidence level: {candidate.evidence_level || "not classified"}</div></div><div className="candidate-score"><strong>{candidate.evidence_completeness_score ?? "?"}</strong><span>record coverage</span></div><button className="arrow-btn" type="button" aria-label={`Select ${candidate.drug_name}`}>›</button></article>)}</div> : <div className="empty-state"><h3>No candidate records returned</h3><p>{result.status === "unavailable" || result.status === "partial" ? "One or more core providers are unavailable or did not resolve a disease target. No sample candidates are substituted." : "The connected sources returned no target-linked drug records for this query. No evidence of no effect is implied."}</p></div>}
+            {selected && <div className="detail-box"><div className="detail-head"><div><span className="eyebrow">SELECTED HYPOTHESIS</span><h3>{selected.drug_name}</h3></div><Badge kind="warning">Research only</Badge></div><p>{selected.score_interpretation}</p><p>Target associations and drug-target records do not establish therapeutic efficacy.</p><h4>Disease-associated target evidence</h4>{selected.disease_associations?.length ? selected.disease_associations.map((association, index) => <div className="evidence-row" key={`association-${index}`}><b>{display(association.target_name || selected.targets?.[index] || selected.targets?.join(", "))}</b><span>Open Targets score: {display(association.score)}</span><span>{display(association.source)} · {display(association.source_id)}</span><SourceLink url={association.url}/></div>) : <p>Disease-association evidence is unavailable or was not returned.</p>}<h4>Traceable drug-target records</h4>{selected.evidence?.length ? selected.evidence.map((record, index) => <div className="evidence-record" key={`${record.source_id || "evidence"}-${index}`}><div className="evidence-row"><b>{display(record.gene_symbol)}</b><span>{display(record.mechanism || record.action || record.activity_type)}</span><span>{display(record.source)} · {display(record.source_id)}</span><SourceLink url={record.url}/></div><div className="evidence-context">Activity: {display(record.activity_value)} {display(record.units)} · Assay: {display(record.assay_id)} · {display(record.assay_description)} · Model: {display(record.assay_cell_type || record.assay_tissue || record.assay_organism)} · Confidence: {display(record.confidence_score)}</div></div>) : <p>No detailed drug-target records available.</p>}<button className="secondary-btn" onClick={() => { setDrugA(selected.drug_name); document.getElementById("combinations")?.scrollIntoView({ behavior: "smooth" }); }}>Use as Drug A for combination search</button></div>}
+            {result.data?.limitations?.map((limitation, index) => <p className="limitation" key={index}>• {limitation}</p>)}
+          </section>
+          <div className="two-col"><section className="panel compact"><PanelTitle kicker="PUBLICATIONS" title="Literature evidence"/>{result.data?.publications?.length ? result.data.publications.map((paper, index) => <div className="publication" key={paper.pmid || paper.source_id || index}><b>{display(paper.title || paper.pmid || paper.source_id)}</b><span>{display(paper.journal)} · {display(paper.year)} · PMID {display(paper.pmid)}</span><SourceLink url={paper.url} label="View source"/></div>) : <div className="quiet-empty">No publication records returned for this query.</div>}</section>
+            <section className="panel compact ai-panel"><PanelTitle kicker="GEMMA 4 · CONFIGURABLE" title="Evidence explanation"/><p className="subcopy">The explanation uses retrieved records. Model availability depends on server configuration.</p><button className="secondary-btn" disabled={explainBusy} onClick={explain}>{explainBusy ? "Requesting explanation…" : "Explain selected evidence"}</button><button className="secondary-btn verifier-demo-button" type="button" disabled={citationDemoBusy} onClick={runFakeCitationCheck}>{citationDemoBusy ? "Checking fake test ID?" : "Demo verifier with fake PMID"}</button><p className="limitation">Synthetic verifier test only: PMID:FAKE-TEST-0001 is not a real citation or biomedical evidence.</p>{citationDemo?.data?.results?.map((claim: Evidence, index: number) => <div className="claim-check" key={index}><Badge kind="warning">{claim.status}</Badge><span>{claim.claim_text}</span><small>{claim.reason_code}: {claim.reason}</small></div>)}{citationDemo?.reason && <p className="limitation">{citationDemo.reason}</p>}{explanation && <div className="explanation"><Badge kind={explanation.status === "ok" ? "good" : "warning"}>{explanation.status || "response"}</Badge><p>{explanation.data?.summary || explanation.reason || explanation.error || "No explanation returned."}</p>{explanation.data?.key_findings?.length ? <ul>{explanation.data.key_findings.map((finding: string, index: number) => <li key={index}>{finding}</li>)}</ul> : null}{explanation.data?.uncertainty?.length ? <p>Uncertainty: {explanation.data.uncertainty.join("; ")}</p> : null}{explanation.data?.missing_evidence?.length ? <p>Missing evidence: {explanation.data.missing_evidence.join("; ")}</p> : null}{explanation.data?.citations?.length ? <p>Evidence source IDs: {explanation.data.citations.map((citation: string) => <Badge key={citation}>{citation}</Badge>)}</p> : <p className="limitation">No validated evidence citations were returned.</p>}{explanation.data?.research_hypothesis && <p>Research hypothesis: {explanation.data.research_hypothesis}</p>}{explanation.validation?.claim_verification?.results?.length ? <div className="claim-verification"><b>Deterministic claim checks</b>{explanation.validation.claim_verification.results.map((claim: Evidence, index: number) => <div className="claim-check" key={`${claim.claim_index}-${index}`}><Badge kind={claim.status === "VERIFIED" ? "good" : "warning"}>{claim.status}</Badge><span>{claim.claim_tag}: {claim.claim_text}</span><small>{claim.citation_source || "No source"} · {claim.citation_record_id || "No record ID"} · {claim.reason}</small></div>)}</div> : null}</div>}</section></div>
+        </>}
+        <section className="panel" id="combinations"><PanelTitle kicker="02 · EXPERIMENTAL EVIDENCE" title="Investigate a drug combination" note="Source-reported findings only. Experimental conditions are not clinical doses."/><form className="combo-form" onSubmit={analyzeCombo}><div className="field"><label htmlFor="drug-a">Drug A</label><input id="drug-a" value={drugA} onChange={event => setDrugA(event.target.value)} placeholder="Drug name or identifier" required/></div><span className="plus">+</span><div className="field"><label htmlFor="drug-b">Drug B</label><input id="drug-b" value={drugB} onChange={event => setDrugB(event.target.value)} placeholder="Drug name or identifier" required/></div><button disabled={comboBusy}>{comboBusy ? "Checking…" : "Check evidence"}</button></form>
+          <button type="button" className="secondary-btn" disabled={identityBusy} onClick={resolveIdentities}>{identityBusy ? "Resolving identities…" : "Resolve drug identities and properties"}</button>
+          {identity?.error && <p className="limitation">Identity lookup unavailable: {identity.error}</p>}
+          {identity?.queries?.map((item: Evidence, index: number) => <div className="identity-result" key={index}><b>Drug {item.side}: {item.query}</b>{Object.entries(item.response.sources || {}).map(([provider, source]: [string, any]) => <div key={provider}><Badge kind={source.status === "ok" ? "good" : "warning"}>{provider}: {source.status || "unknown"}</Badge>{source.ambiguous && <p className="limitation">Multiple identities returned. Review identifiers, salt form, stereochemistry, and formulation; no match is selected automatically.</p>}{source.records?.map((record: Evidence, recordIndex: number) => <div className="publication" key={record.CID || record.drug_id || recordIndex}><b>{record.IUPACName || record.Title || record.molecule_pref_name || `Compound ${record.CID || record.drug_id || ""}`}</b><span>Source ID: {display(record.CID || record.drug_id)} · Formula: {display(record.MolecularFormula)} · Molecular weight: {display(record.MolecularWeight)}</span><span>SMILES: {display(record.IsomericSMILES || record.CanonicalSMILES)}</span><SourceLink url={record.source_url || record.url}/></div>)}{!source.records?.length && <p className="limitation">No identity/property record returned; this is not evidence of absence.</p>}</div>)}</div>)}
+          {combo && <div className="combo-result"><div className="combo-state"><Badge kind={combo.status === "evidence_found" ? "good" : "warning"}>{combo.status || "unavailable"}</Badge><span>{combo.evidence_count ?? 0} experimental records</span><p>{combo.interpretation || combo.error || "Provider status is unavailable."}</p>{combo.error && <p>Provider detail: {combo.error}</p>}</div>
+            {combo.evidence?.length ? combo.evidence.map((record: Evidence, index: number) => <div className="combo-record" key={`${record.source_id || "record"}-${index}`}><div className="record-top"><b>{display(record.metric)} · {display(record.reported_interpretation)}</b><Badge>{display(record.cell_line)}</Badge></div><div className="record-grid"><span>Score<strong>{display(record.score)}</strong></span><span>Reported ratio<strong>{display(record.ratio)}</strong></span><span>Concentrations<strong>{display(record.concentration_a)} / {display(record.concentration_b)} {display(record.concentration_unit)}</strong></span><span>Treatment context<strong>{display(record.experimental_context)}</strong></span><span>Source ID<strong>{display(record.source_id)}</strong></span><span>Study<strong>{display(record.study)}</strong></span><span>Assay<strong>{display(record.assay)}</strong></span><span>Citation<strong>{display(record.citation || record.pmid || record.doi)}</strong></span></div><SourceLink url={record.url}/></div>) : <div className="quiet-empty">No experimental observations were returned. This does not establish lack of effect.</div>}
+            {combo.synergy_heatmap && <div className="combo-heatmap"><div className="heatmap-heading"><div><b>Cell line ? synergy metric</b><small>Individual source scores only; incompatible contexts are not pooled.</small></div><Badge kind={combo.synergy_heatmap.status === "ok" ? "good" : "warning"}>{combo.synergy_heatmap.status}</Badge></div>{combo.synergy_heatmap.cells?.length ? <div className="heatmap-scroll"><table><thead><tr><th>Cell line</th>{combo.synergy_heatmap.metrics.map((metric: string) => <th key={metric}>{metric}</th>)}</tr></thead><tbody>{combo.synergy_heatmap.cell_lines.map((cellLine: string | null, cellIndex: number) => <tr key={cellLine || `unreported-${cellIndex}`}><th>{display(cellLine)}</th>{combo.synergy_heatmap.metrics.map((metric: string) => { const cell = combo.synergy_heatmap.cells.find((item: Evidence) => item.cell_line === cellLine && item.metric === metric); return <td key={metric} className={cell?.state === "NO_DATA" ? "heatmap-no-data" : "heatmap-observed"}>{!cell || cell.state === "NO_DATA" ? <span className="no-observation">No observation</span> : <><span className="observation-count">{cell.observation_count} experiment{cell.observation_count === 1 ? "" : "s"}</span>{cell.scores?.map((score: Evidence, index: number) => <button type="button" className={`heatmap-score ${reportedLabelClass(score.reported_interpretation)}`} key={`${score.source_id || index}-${index}`} onClick={() => openProvenance(score.source_id)} title="Open this record in the provenance drawer">{display(score.score)} ? {display(score.reported_interpretation)}</button>)}{cell.context_dependent && <strong className="heatmap-warning">Context-dependent ? not directly comparable</strong>}{cell.warning && <small className="heatmap-warning">{cell.warning}</small>}</>}</td>; })}</tr>)}</tbody></table></div> : <p className="quiet-empty">No DrugComb observations are available. Missing data is not additive, antagonistic, or evidence of no effect.</p>}<p className="limitation">{combo.synergy_heatmap.legend?.NO_DATA || "No observation returned; this is not additive or ineffective."} {combo.synergy_heatmap.interpretation}</p></div>}
+            {combo.ratio_analysis?.observations?.length ? <div className="ratio-context"><b>Experimental ratio observations</b><p>{combo.ratio_analysis.note} Ratios and synergy metrics from different contexts must not be treated as directly interchangeable.</p>{combo.ratio_analysis.observations.map((observation: Evidence, index: number) => <div className="record-grid" key={index}><span>Cell line<strong>{display(observation.cell_line)}</strong></span><span>Metric<strong>{display(observation.metric)}</strong></span><span>Reported ratio<strong>{display(observation.reported_ratio)}</strong></span><span>Derived A:B ratio<strong>{observation.derived_ratio ? `${observation.derived_ratio.a_to_b.toFixed(3)} (${observation.derived_ratio.unit})` : "Not available"}</strong></span></div>)}</div> : null}
+            <div className="safety-box"><div className="shield">!</div><div><b>Drug interaction screen · {combo.safety?.ddi_risk_level || "UNKNOWN"}</b><p>Decision: {combo.safety?.decision || "REVIEW"} · {combo.safety?.ddi_status || combo.safety?.status || "Interaction evidence unavailable"}. This is computational research screening, not a medical safety determination.</p>{combo.safety?.error && <p>{combo.safety.error}</p>}{combo.safety?.ddi_warnings?.length ? combo.safety.ddi_warnings.map((warning: Evidence, index: number) => <p key={index}>{display(warning.description || warning.severity || warning.source_id)} · {display(warning.source)} · {display(warning.source_id)}</p>) : <p>Missing interaction evidence remains UNKNOWN / REVIEW, never low risk.</p>}{combo.safety?.missing_evidence?.map((item: string, index: number) => <p key={`missing-${index}`}>{item}</p>)}</div></div>
+          </div>}
+        </section>
+        <section className="panel" id="molecular"><PanelTitle kicker="03 · CHEMICAL VALIDATION" title="Validate a molecular structure" note="Descriptors are computational and are not a safety assessment."/><form className="molecule-form" onSubmit={validateMolecule}><label htmlFor="smiles">SMILES</label><div className="input-action"><input id="smiles" value={smiles} onChange={event => setSmiles(event.target.value)} placeholder="Paste a SMILES structure" required/><button disabled={molBusy}>{molBusy ? "Validating…" : "Validate structure"}</button></div></form>{molecule && <div className="molecule-result"><Badge kind={molecule.valid ? "good" : "warning"}>{molecule.valid ? "Structure parsed" : molecule.status || "Not validated"}</Badge>{molecule.error && <p>{molecule.error}</p>}{molecule.properties && <div className="property-grid">{Object.entries(molecule.properties).map(([key, value]) => <div key={key}><span>{key.replaceAll("_", " ")}</span><b>{display(value)}</b></div>)}</div>}<p className="limitation">Properties are shown only when returned by the validator. A valid SMILES parse does not establish activity or safety.</p></div>}</section>
+        <footer><span>DrugDiscover AI · research prototype</span><span>Evidence is incomplete, context-dependent, and not a substitute for expert review.</span></footer>
+      </div>
+    </section>
+    {provenanceOpen && <div className="drawer-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setProvenanceOpen(false); }}><aside className="provenance-drawer" role="dialog" aria-modal="true" aria-labelledby="provenance-title"><div className="drawer-header"><div><span className="eyebrow">AUDIT TRAIL</span><h2 id="provenance-title">Evidence provenance</h2></div><button type="button" className="drawer-close" onClick={() => setProvenanceOpen(false)} aria-label="Close provenance drawer">×</button></div><p className="limitation">Raw records are shown only when the ledger explicitly permits display. Missing metadata is displayed as not reported.</p>{drawerRecords.length ? drawerRecords.map((record, index) => <article className="ledger-record" key={record.record_id || `${record.source || "source"}-${index}`}><div className="ledger-title"><b>{display(record.source)}</b><Badge>{display(record.record_id)}</Badge></div><dl><dt>Source ID</dt><dd>{display(record.source_id)}</dd><dt>Retrieved</dt><dd>{display(record.retrieved_at)}</dd><dt>HTTP status</dt><dd>{display(record.http_status)}</dd><dt>URL</dt><dd><SourceLink url={record.url}/></dd><dt>Transformations</dt><dd>{Array.isArray(record.transformations) && record.transformations.length ? record.transformations.map(String).join("; ") : "Not reported"}</dd><dt>Licence</dt><dd>{display(record.license)}</dd><dt>Content hash</dt><dd className="hash-value">{display(record.content_hash)}</dd></dl>{record.raw_display_permitted === true && record.raw_json !== undefined && record.raw_json !== null ? <details><summary>Raw source record</summary><pre>{typeof record.raw_json === "string" ? record.raw_json : JSON.stringify(record.raw_json, null, 2)}</pre></details> : <p className="limitation">Raw source data is hidden because permission was not explicitly supplied.</p>}</article>) : <div className="quiet-empty">No evidence ledger records were returned for this run.</div>}</aside></div>}
+  </main>;
+}
