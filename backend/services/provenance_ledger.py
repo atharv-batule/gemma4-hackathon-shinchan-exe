@@ -2,10 +2,17 @@
 
 This module records only metadata present in provider results or observable at
 the application boundary. It does not infer upstream HTTP status or license.
+
+Built ledger records are retained in a bounded process-local store so the API
+can retrieve one exact record by ``record_id`` after the originating response
+has been returned. The store is not a database: it is empty after a restart and
+never substitutes records from another response.
 """
 from __future__ import annotations
 
+from collections import OrderedDict
 from datetime import datetime, timezone
+import copy
 import hashlib
 import json
 import threading
@@ -28,6 +35,15 @@ _latest_checks: dict[str, dict[str, Any]] = {
     }
     for source in KNOWN_SOURCES
 }
+
+# Bound the record store so long-running processes do not grow without limit.
+# Oldest records are dropped first; a missing record is reported as not found.
+_MAX_STORED_RECORDS = 5000
+_stored_records: "OrderedDict[str, dict[str, Any]]" = OrderedDict()
+_METADATA_KEYS = (
+    "retrieved_at", "http_status", "license", "attribution",
+    "transformations", "experiment_id", "cached",
+)
 
 
 def utc_now() -> str:
@@ -126,13 +142,49 @@ def _source_hint(key: str, inherited: str | None) -> str | None:
     return aliases.get(key, inherited)
 
 
+def _transformations(value: Any) -> list[str]:
+    """Normalize declared transformations to ordered, human-readable strings.
+
+    Only transformations explicitly declared by an adapter or engine are
+    reported. Nothing is inferred from data differences.
+    """
+    items: list[str] = []
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, list):
+        return items
+    for item in value:
+        text: str | None = None
+        if isinstance(item, str) and item.strip():
+            text = item.strip()
+        elif isinstance(item, dict):
+            label = item.get("type") or item.get("operation") or item.get("kind")
+            detail = item.get("detail") or item.get("description")
+            if label and detail:
+                text = f"{label}: {detail}"
+            elif label:
+                text = str(label).strip()
+            elif detail:
+                text = str(detail).strip()
+        if text and text not in items:
+            items.append(text)
+    return items
+
+
 def _source_records(value: Any, source_hint: str | None = None, inherited_metadata: dict[str, Any] | None = None):
     """Yield record-like dictionaries that carry an explicit source label."""
     if isinstance(value, dict):
         metadata = dict(inherited_metadata or {})
-        for metadata_key in ("retrieved_at", "http_status", "license"):
+        for metadata_key in _METADATA_KEYS:
+            if metadata_key == "transformations":
+                continue
             if value.get(metadata_key) is not None:
                 metadata[metadata_key] = value[metadata_key]
+        own_transformations = _transformations(value.get("transformations"))
+        if own_transformations:
+            metadata["transformations"] = (
+                _transformations(metadata.get("transformations")) + own_transformations
+            )
         is_record = any(
             k in value for k in (
                 "source_id", "id", "pmid", "drug_id", "target_id", "CID",
@@ -147,7 +199,10 @@ def _source_records(value: Any, source_hint: str | None = None, inherited_metada
             if not value.get("source"):
                 item.setdefault("source_record", dict(value))
             for metadata_key, metadata_value in metadata.items():
-                item.setdefault(metadata_key, metadata_value)
+                if metadata_key == "transformations":
+                    item["transformations"] = list(metadata_value)
+                else:
+                    item.setdefault(metadata_key, metadata_value)
             yield item
         for key, child in value.items():
             if key in {"source_record", "raw_json"}:
@@ -162,12 +217,39 @@ def _source_records(value: Any, source_hint: str | None = None, inherited_metada
             yield from _source_records(child, source_hint, inherited_metadata)
 
 
+def _http_status(value: Any) -> int | None:
+    # Booleans are ints in Python; reject them and out-of-range values instead
+    # of treating arbitrary data as an HTTP status.
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value if 100 <= value <= 599 else None
+
+
+def _text(value: Any) -> str | None:
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _metadata_status(*, http_status: int | None, license_value: str | None,
+                     attribution: str | None, retrieved_at_provided: bool) -> dict[str, str]:
+    return {
+        "http_status": "PROVIDED" if http_status is not None else "UNKNOWN",
+        "license": "PROVIDED" if license_value is not None else "NOT_PROVIDED",
+        "attribution": "PROVIDED" if attribution is not None else "NOT_PROVIDED",
+        "retrieved_at": "PROVIDED" if retrieved_at_provided else "UNKNOWN",
+    }
+
+
 def build_evidence_ledger(value: Any) -> list[dict[str, Any]]:
     """Build unique traceable ledger items from returned source records.
 
     ``raw_json`` is populated only when an adapter explicitly retained its raw
-    source row. ``normalized_record`` always preserves what this layer received.
-    Upstream HTTP status and license stay null unless explicitly supplied.
+    source row and permitted display. ``normalized_record`` always preserves
+    what this layer received. Upstream HTTP status and license stay null unless
+    explicitly supplied, and the corresponding ``metadata_status`` says
+    UNKNOWN/NOT_PROVIDED rather than implying a value.
+
+    Built records are also retained in the bounded process-local store used by
+    the provenance retrieval endpoints.
     """
     ledger: list[dict[str, Any]] = []
     seen: dict[str, str] = {}
@@ -187,6 +269,12 @@ def build_evidence_ledger(value: Any) -> list[dict[str, Any]]:
                            or record.get("activity_id") or record.get("disease_id")
                            or record.get("block_id") or record.get("blockid"))
         source_id = str(source_id_value) if source_id_value is not None else None
+        transformations = _transformations(record.get("transformations"))
+        if source_id_value is not None and not isinstance(source_id_value, str):
+            note = (f"identifier_canonicalisation: source_id {type(source_id_value).__name__} "
+                    f"coerced to string '{source_id}'")
+            if note not in transformations:
+                transformations.append(note)
         base_id = f"{source}:{source_id}" if source_id else f"{source}:sha256:{digest}"
         if base_id in seen and seen[base_id] == digest:
             continue
@@ -194,21 +282,142 @@ def build_evidence_ledger(value: Any) -> list[dict[str, Any]]:
         if seen.get(record_id) == digest:
             continue
         seen[record_id] = digest
+        retrieved_value = _text(record.get("retrieved_at") or record.get("_retrieved_at"))
+        cached = record.get("cached") is True
+        http_status = _http_status(record.get("http_status"))
+        license_value = _text(record.get("license"))
+        attribution = _text(record.get("attribution"))
         ledger.append({
             "record_id": record_id,
             "source": source,
             "source_id": source_id,
             "url": record.get("url") or record.get("source_url"),
-            "retrieved_at": record.get("retrieved_at") or record.get("_retrieved_at") or utc_now(),
-            "http_status": record.get("http_status"),
+            "retrieved_at": retrieved_value or utc_now(),
+            "retrieved_at_status": "PROVIDED" if retrieved_value else "UNKNOWN",
+            "retrieved_at_origin": "cached" if cached and retrieved_value else (
+                "provider" if retrieved_value else "unknown"),
+            "http_status": http_status,
             "content_hash": f"sha256:{digest}",
-            "license": record.get("license"),
+            "license": license_value,
+            "attribution": attribution,
+            "transformations": transformations,
+            "experiment_id": _text(record.get("experiment_id")) if isinstance(record.get("experiment_id"), str) else record.get("experiment_id"),
+            "metadata_status": _metadata_status(
+                http_status=http_status,
+                license_value=license_value,
+                attribution=attribution,
+                retrieved_at_provided=bool(retrieved_value),
+            ),
             "raw_display_permitted": raw_allowed,
             "raw_data_status": "permitted" if raw_allowed else "not_displayed_permission_unconfirmed",
             "raw_json": raw,
             "normalized_record": normalized,
         })
+    register_ledger_records(ledger)
     return ledger
+
+
+# ---------------------------------------------------------------------------
+# Process-local provenance record store and exact matching helpers
+# ---------------------------------------------------------------------------
+
+def register_ledger_records(records: list[dict[str, Any]]) -> None:
+    """Retain built ledger records for later retrieval by exact record ID."""
+    if not records:
+        return
+    with _lock:
+        for record in records:
+            record_id = record.get("record_id")
+            if not isinstance(record_id, str) or not record_id:
+                continue
+            _stored_records[record_id] = copy.deepcopy(record)
+            _stored_records.move_to_end(record_id)
+        while len(_stored_records) > _MAX_STORED_RECORDS:
+            _stored_records.popitem(last=False)
+
+
+def get_provenance_record(record_id: str) -> dict[str, Any] | None:
+    """Return one stored ledger record by exact ID, or None if unknown."""
+    with _lock:
+        value = _stored_records.get(record_id)
+        return copy.deepcopy(value) if value is not None else None
+
+
+def find_provenance_records(
+    *,
+    record_id: str | None = None,
+    source: str | None = None,
+    source_id: str | None = None,
+    experiment_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Return stored records matching every supplied exact filter.
+
+    Source labels are compared case-insensitively; identifiers and experiment
+    IDs are compared exactly. No fuzzy or fallback matching is performed.
+    """
+    with _lock:
+        values = list(_stored_records.values())
+    matches: list[dict[str, Any]] = []
+    for item in values:
+        if record_id is not None and item.get("record_id") != record_id:
+            continue
+        if source is not None and str(item.get("source", "")).strip().casefold() != source.strip().casefold():
+            continue
+        if source_id is not None and item.get("source_id") != source_id:
+            continue
+        if experiment_id is not None and item.get("experiment_id") != experiment_id:
+            continue
+        matches.append(copy.deepcopy(item))
+    return matches
+
+
+def annotate_heatmap_provenance(heatmap: dict[str, Any], ledger: list[dict[str, Any]]) -> dict[str, Any]:
+    """Attach an exact ledger record reference to each heatmap observation.
+
+    Matching requires an exact source label plus source ID pair that resolves to
+    exactly one ledger record. Missing identifiers, unknown pairs, and ambiguous
+    pairs are marked UNAVAILABLE/AMBIGUOUS and carry no record ID. The heatmap
+    is never replaced with the whole ledger.
+    """
+    index: dict[tuple[str, str], list[str]] = {}
+    for item in ledger:
+        source_value = item.get("source")
+        source_id_value = item.get("source_id")
+        record_id = item.get("record_id")
+        if not isinstance(source_value, str) or source_id_value is None or not isinstance(record_id, str):
+            continue
+        key = (source_value.strip().casefold(), str(source_id_value))
+        index.setdefault(key, []).append(record_id)
+
+    for cell in heatmap.get("cells") or []:
+        if not isinstance(cell, dict):
+            continue
+        for score in cell.get("scores") or []:
+            if not isinstance(score, dict):
+                continue
+            source_value = score.get("source")
+            source_id_value = score.get("source_id")
+            score["record_id"] = None
+            if not isinstance(source_value, str) or not source_value.strip():
+                score["provenance_state"] = "UNAVAILABLE"
+                score["provenance_reason"] = "The observation has no source label; no record can be matched exactly."
+                continue
+            if source_id_value is None or not str(source_id_value).strip():
+                score["provenance_state"] = "UNAVAILABLE"
+                score["provenance_reason"] = "The observation has no source identifier; no ledger record was selected."
+                continue
+            matches = index.get((source_value.strip().casefold(), str(source_id_value)), [])
+            if len(matches) == 1:
+                score["record_id"] = matches[0]
+                score["provenance_state"] = "AVAILABLE"
+                score["provenance_reason"] = "Matched to exactly one ledger record by source and source ID."
+            elif len(matches) > 1:
+                score["provenance_state"] = "AMBIGUOUS"
+                score["provenance_reason"] = "Multiple ledger records share this source and source ID; no record was selected automatically."
+            else:
+                score["provenance_state"] = "UNAVAILABLE"
+                score["provenance_reason"] = "No ledger record matches this source and source ID."
+    return heatmap
 
 
 def attach_provenance(result: dict[str, Any], source_envelopes: dict[str, tuple[str, Any]], *, skipped_sources: set[str] | None = None) -> dict[str, Any]:
@@ -220,4 +429,3 @@ def attach_provenance(result: dict[str, Any], source_envelopes: dict[str, tuple[
     result["source_checks"] = checks
     result["evidence_ledger"] = build_evidence_ledger(result)
     return result
-

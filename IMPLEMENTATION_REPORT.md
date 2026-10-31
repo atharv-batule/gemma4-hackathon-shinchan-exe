@@ -84,3 +84,30 @@ Final verification after integration:
 Changes improve strict Open Targets/PubMed/ChEMBL/PubChem response validation, partial/unavailable provider reporting, source record provenance, repurposing coverage-only ranking, experiment-context separation, mismatch filtering, conservative DDI severity mapping, explicit RDKit unavailable behavior, Gemma evidence prerequisites and citation allowlisting, and dashboard error/source/context rendering. DrugComb stays fail-closed because exact deployed parameters and response schema could not be verified. DrugBank stays unavailable because no authorized credential or account documentation/schema was found. Gemma has no configured endpoint/model; RDKit is not installed.
 
 The project is a runnable research MVP shell with tested mocked flows, not a fully connected live biomedical platform. A complete live end-to-end disease-to-combination demonstration could not be verified due external network and provider access blockers.
+
+
+## Provenance retrieval closeout - 2026-10-31
+
+### Delivered changes
+The remaining provenance and source-check work was completed without rebuilding the ledger or the source-check panel.
+
+- **Exact heatmap-to-record navigation**: `annotate_heatmap_provenance()` in `backend/services/provenance_ledger.py` attaches a `record_id` to each heatmap observation only when the observation's source label and source ID resolve to exactly one ledger record. Missing source labels, missing source IDs, unknown pairs, and duplicated source IDs are marked `UNAVAILABLE`/`AMBIGUOUS` with no record ID and a reason. The combination route applies this to the generated heatmap, leaving the heatmap's existing fields unchanged. In `frontend/app/page.tsx`, clicking a cell opens a record-only drawer for that exact `record_id`, keeps the cell's metric, score, cell line, and experimental context visible, and never falls back to the full ledger. The explicit "Open provenance ledger" button still opens the complete session ledger.
+- **Record retrieval endpoints**: `GET /api/provenance/records/{record_id}` returns one stored record by exact ID, and `GET /api/provenance/records` retrieves records by exact `record_id`, `source`, `source_id`, or `experiment_id` (at least one filter required). Responses distinguish found, ambiguous, not found (404), invalid identifier (400), and store failure (503). `build_evidence_ledger()` now also retains built records in a bounded 5,000-record process-local store; its returned structure and all existing response contracts are unchanged. The frontend drawer uses these endpoints through `frontend/lib/provenance.ts`.
+- **Metadata**: ledger records now report `transformations`, `http_status`, `license`, `attribution`, `retrieved_at_status`, `retrieved_at_origin`, `experiment_id`, and a `metadata_status` object whose values are only `PROVIDED`, `UNKNOWN`, or `NOT_PROVIDED`. Transformations are recorded only when they occur: adapter-declared unit conversions, the combination engine's metric canonicalisation (e.g. `zip` to `ZIP`), and the ledger's own source-ID string coercion. `biomedical_data.get_json()` can now record the observed response status, and the PubChem and ChEMBL adapters pass it through. Cached envelopes keep their original `retrieved_at` and are marked as cached. Raw records are still emitted only when `raw_display_permitted` is true. The drawer displays `UNKNOWN`/`NOT_PROVIDED`/`None recorded` instead of inventing values.
+
+### Tests added
+- `backend/tests/test_provenance_retrieval.py`: **20 tests** covering exact heatmap-cell-to-record matching, missing `source_id`, missing source label, unmatched records, ambiguous source IDs, individual retrieval, unknown and invalid record IDs, required query filters, source/experiment retrieval, store failure, restricted raw-record display, transformation metadata, present and missing HTTP status and licence, cached/unreported retrieval timestamps, and DDI safety remaining `UNKNOWN`/`REVIEW` when DrugBank evidence was not checked.
+- `frontend/lib/provenance.test.ts`: **9 tests** (Node built-in test runner) covering drawer loading, exact lookup, found record, empty/not-found, ambiguous, HTTP and network errors, and no-identifier states. `tsconfig.json` enables `allowImportingTsExtensions` for the `.ts` test import.
+
+### Verification performed
+- `python -m compileall -q backend`: passed.
+- `python -m unittest discover -s backend/tests`: **118 tests passed** (including the 20 new provenance retrieval tests). All provider payloads remain mocked.
+- `npx tsc --noEmit` (in `frontend`): passed.
+- `node --test lib/provenance.test.ts` (in `frontend`): 9 passed.
+- `npm run build` (in `frontend`): passed with the cached **Next.js 15.5.5**. The manifest still declares 15.5.28, which is not installed, so the declared-version build remains unverified.
+
+### Limitations
+- The provenance record store is in-memory and bounded; records do not survive a backend restart or span workers. It is not the planned SQLite persistence layer.
+- Live DrugComb data is still unavailable, so exact heatmap navigation was exercised only with mocked provider records. Open Targets, PubMed, DrugComb, and DrugBank still do not report an HTTP status, and no provider supplies a licence/attribution value; those ledger fields correctly remain `UNKNOWN`/`NOT_PROVIDED`.
+- The frontend checks are type checks, helper-unit tests, and a production build. Drawer states were not exercised in a live browser against a running backend.
+- Drug interaction evidence remains `UNKNOWN`/`REVIEW`; nothing in this change is a clinical safety or dosing conclusion.

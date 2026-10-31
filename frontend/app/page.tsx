@@ -1,6 +1,8 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { initialProvenanceState, loadProvenanceRecord } from "../lib/provenance";
+import type { ProvenanceResult, ProvenanceTarget } from "../lib/provenance";
 
 type Evidence = Record<string, any>;
 type Candidate = {
@@ -69,6 +71,39 @@ function SourceLink({ url, label = "Open source record" }: { url?: unknown; labe
     : <span>Source URL not supplied</span>;
 }
 
+function contextSummary(context?: Record<string, unknown> | null) {
+  if (!context) return "No experimental context was supplied with this observation.";
+  const entries = Object.entries(context).filter(([, value]) => value !== null && value !== undefined && value !== "");
+  return entries.length
+    ? entries.map(([key, value]) => `${key.replaceAll("_", " ")}: ${display(value)}`).join(" · ")
+    : "No experimental context was supplied with this observation.";
+}
+
+function HeatmapCellContext({ target }: { target: ProvenanceTarget | null }) {
+  if (!target) return null;
+  return <div className="drawer-context">
+    <span className="eyebrow">SELECTED OBSERVATION</span>
+    <dl>
+      <dt>Cell line</dt><dd>{display(target.cellLine)}</dd>
+      <dt>Metric</dt><dd>{display(target.metric)}</dd>
+      <dt>Reported score</dt><dd>{display(target.score)}</dd>
+      <dt>Source interpretation</dt><dd>{display(target.reportedInterpretation)}</dd>
+      <dt>Record ID</dt><dd>{display(target.recordId)}</dd>
+      <dt>Source ID</dt><dd>{display(target.sourceId)}</dd>
+    </dl>
+    <p className="limitation">{contextSummary(target.context)}</p>
+  </div>;
+}
+
+function RecordLookupState({ result }: { result: ProvenanceResult }) {
+  if (result.state === "loading") return <div className="drawer-state"><span className="spinner dark"/> Loading the stored provenance record…</div>;
+  if (result.state === "found") return null;
+  return <div className={`drawer-state${result.state === "error" ? " error" : ""}`}>
+    <b>{result.state === "error" ? "Provenance lookup failed" : "Provenance unavailable"}</b>
+    <p>{result.message}</p>
+  </div>;
+}
+
 export default function Home() {
   const [disease, setDisease] = useState("");
   const [result, setResult] = useState<Result | null>(null);
@@ -90,7 +125,10 @@ export default function Home() {
   const [citationDemoBusy, setCitationDemoBusy] = useState(false);
   const [health, setHealth] = useState<any>(null);
   const [provenanceOpen, setProvenanceOpen] = useState(false);
-  const [provenanceRecordId, setProvenanceRecordId] = useState<string | null>(null);
+  const [provenanceMode, setProvenanceMode] = useState<"ledger" | "record">("ledger");
+  const [provenanceTarget, setProvenanceTarget] = useState<ProvenanceTarget | null>(null);
+  const [provenanceResult, setProvenanceResult] = useState<ProvenanceResult>({ state: "loading" });
+  const provenanceRequest = useRef(0);
 
   const candidates = result?.data?.candidates || [];
   const targets = result?.data?.targets || [];
@@ -106,13 +144,39 @@ export default function Home() {
     return Array.from(unique.values());
   }, [result, combo, identity]);
   const sourceChecks: Record<string, Evidence> = { ...(result?.source_checks || result?.data?.source_checks || {}), ...(health?.source_checks || {}) };
-  const drawerRecords = provenanceRecordId
-    ? evidenceLedger.filter(record => record.record_id === provenanceRecordId || record.source_id === provenanceRecordId)
+  const drawerRecords: Evidence[] = provenanceMode === "record"
+    ? (provenanceResult.state === "found" ? [provenanceResult.record] : [])
     : evidenceLedger;
 
-  function openProvenance(sourceId?: string) {
-    setProvenanceRecordId(sourceId || null);
+  function openLedger() {
+    provenanceRequest.current += 1;
+    setProvenanceMode("ledger");
+    setProvenanceTarget(null);
     setProvenanceOpen(true);
+  }
+
+  function openHeatmapProvenance(score: Evidence, cell: Evidence) {
+    const target: ProvenanceTarget = {
+      recordId: score.record_id ?? null,
+      source: score.source ?? null,
+      sourceId: score.source_id ?? null,
+      metric: cell.metric ?? null,
+      cellLine: cell.cell_line ?? null,
+      score: score.score ?? null,
+      reportedInterpretation: score.reported_interpretation ?? null,
+      context: score.context ?? null,
+    };
+    const request = provenanceRequest.current + 1;
+    provenanceRequest.current = request;
+    const initialState = initialProvenanceState(target);
+    setProvenanceMode("record");
+    setProvenanceTarget(target);
+    setProvenanceResult(initialState);
+    setProvenanceOpen(true);
+    if (initialState.state !== "loading") return;
+    loadProvenanceRecord(target, { baseUrl: API }).then(result => {
+      if (request === provenanceRequest.current) setProvenanceResult(result);
+    });
   }
 
   useEffect(() => {
@@ -212,7 +276,7 @@ export default function Home() {
         {error && <div className="error-box">Could not complete analysis: {error}</div>}
         {busy && <div className="loading-card"><span className="spinner dark"/><div><b>Checking biomedical sources</b><p>Collecting available target, drug and publication records.</p></div></div>}
         {result && <>
-          <section className="panel source-review"><div className="panel-title"><div><span className="eyebrow">RUN TRACE</span><h2>What we could not check</h2></div><button type="button" className="secondary-btn" onClick={() => openProvenance()}>Open provenance ledger ({evidenceLedger.length})</button></div><div className="source-check-list">{Object.entries(sourceChecks).length ? Object.entries(sourceChecks).map(([name, check]) => <div className="source-check" key={name}><Badge kind={check.state === "CHECKED_FOUND" ? "good" : check.state === "CHECKED_EMPTY" ? "muted" : "warning"}>{name}: {check.state || "NOT_CHECKED"}</Badge><span>{check.record_count == null ? "Record count not reported" : `${check.record_count} records`}</span>{check.reason && <p>{String(check.reason)}</p>}</div>) : <p className="limitation">This run did not return source-check details. No provider check is assumed from missing status.</p>}</div></section>
+          <section className="panel source-review"><div className="panel-title"><div><span className="eyebrow">RUN TRACE</span><h2>What we could not check</h2></div><button type="button" className="secondary-btn" onClick={() => openLedger()}>Open provenance ledger ({evidenceLedger.length})</button></div><div className="source-check-list">{Object.entries(sourceChecks).length ? Object.entries(sourceChecks).map(([name, check]) => <div className="source-check" key={name}><Badge kind={check.state === "CHECKED_FOUND" ? "good" : check.state === "CHECKED_EMPTY" ? "muted" : "warning"}>{name}: {check.state || "NOT_CHECKED"}</Badge><span>{check.record_count == null ? "Record count not reported" : `${check.record_count} records`}</span>{check.reason && <p>{String(check.reason)}</p>}</div>) : <p className="limitation">This run did not return source-check details. No provider check is assumed from missing status.</p>}</div></section>
           <section className="metrics-row"><div className="metric-card"><span className="metric-icon teal">D</span><div><small>DRUG CANDIDATES</small><strong>{candidates.length}</strong><span>source-linked hypotheses</span></div></div><div className="metric-card"><span className="metric-icon blue">T</span><div><small>ASSOCIATED TARGETS</small><strong>{targets.length}</strong><span>reported links</span></div></div><div className="metric-card"><span className="metric-icon violet">E</span><div><small>EVIDENCE RECORDS</small><strong>{evidenceCount + (result.data?.publications?.length || 0)}</strong><span>retrieved in this query</span></div></div><div className="metric-card"><span className="metric-icon amber">t</span><div><small>PIPELINE TIME</small><strong>{result.pipeline_latency_ms ?? "?"}<small className="unit"> ms</small></strong><span>measured request latency</span></div></div></section>
           <section className="panel results-panel"><PanelTitle kicker="REPURPOSING HYPOTHESES" title="Candidate evidence" note="Ranked by available record coverage. This is not an efficacy score."/>
             <div className="source-strip"><span>DATA SOURCES</span>{sources.length ? sources.map(([name, state]) => <div className="provider-status" key={name}><Badge kind={state.status === "available" ? "good" : "warning"}>{name.replaceAll("_", " ")} · {state.status}{state.record_count != null ? ` · ${state.record_count} records` : ""}</Badge>{state.detail && <small>{String(state.detail)}</small>}{state.matches?.length ? <small>Matches: {state.matches.map((match: Evidence) => `${match.disease_name || "disease"} (${match.disease_id || "ID unavailable"})`).join("; ")}</small> : null}</div>) : <span>Provider status not returned.</span>}</div>
@@ -229,7 +293,7 @@ export default function Home() {
           {identity?.queries?.map((item: Evidence, index: number) => <div className="identity-result" key={index}><b>Drug {item.side}: {item.query}</b>{Object.entries(item.response.sources || {}).map(([provider, source]: [string, any]) => <div key={provider}><Badge kind={source.status === "ok" ? "good" : "warning"}>{provider}: {source.status || "unknown"}</Badge>{source.ambiguous && <p className="limitation">Multiple identities returned. Review identifiers, salt form, stereochemistry, and formulation; no match is selected automatically.</p>}{source.records?.map((record: Evidence, recordIndex: number) => <div className="publication" key={record.CID || record.drug_id || recordIndex}><b>{record.IUPACName || record.Title || record.molecule_pref_name || `Compound ${record.CID || record.drug_id || ""}`}</b><span>Source ID: {display(record.CID || record.drug_id)} · Formula: {display(record.MolecularFormula)} · Molecular weight: {display(record.MolecularWeight)}</span><span>SMILES: {display(record.IsomericSMILES || record.CanonicalSMILES)}</span><SourceLink url={record.source_url || record.url}/></div>)}{!source.records?.length && <p className="limitation">No identity/property record returned; this is not evidence of absence.</p>}</div>)}</div>)}
           {combo && <div className="combo-result"><div className="combo-state"><Badge kind={combo.status === "evidence_found" ? "good" : "warning"}>{combo.status || "unavailable"}</Badge><span>{combo.evidence_count ?? 0} experimental records</span><p>{combo.interpretation || combo.error || "Provider status is unavailable."}</p>{combo.error && <p>Provider detail: {combo.error}</p>}</div>
             {combo.evidence?.length ? combo.evidence.map((record: Evidence, index: number) => <div className="combo-record" key={`${record.source_id || "record"}-${index}`}><div className="record-top"><b>{display(record.metric)} · {display(record.reported_interpretation)}</b><Badge>{display(record.cell_line)}</Badge></div><div className="record-grid"><span>Score<strong>{display(record.score)}</strong></span><span>Reported ratio<strong>{display(record.ratio)}</strong></span><span>Concentrations<strong>{display(record.concentration_a)} / {display(record.concentration_b)} {display(record.concentration_unit)}</strong></span><span>Treatment context<strong>{display(record.experimental_context)}</strong></span><span>Source ID<strong>{display(record.source_id)}</strong></span><span>Study<strong>{display(record.study)}</strong></span><span>Assay<strong>{display(record.assay)}</strong></span><span>Citation<strong>{display(record.citation || record.pmid || record.doi)}</strong></span></div><SourceLink url={record.url}/></div>) : <div className="quiet-empty">No experimental observations were returned. This does not establish lack of effect.</div>}
-            {combo.synergy_heatmap && <div className="combo-heatmap"><div className="heatmap-heading"><div><b>Cell line ? synergy metric</b><small>Individual source scores only; incompatible contexts are not pooled.</small></div><Badge kind={combo.synergy_heatmap.status === "ok" ? "good" : "warning"}>{combo.synergy_heatmap.status}</Badge></div>{combo.synergy_heatmap.cells?.length ? <div className="heatmap-scroll"><table><thead><tr><th>Cell line</th>{combo.synergy_heatmap.metrics.map((metric: string) => <th key={metric}>{metric}</th>)}</tr></thead><tbody>{combo.synergy_heatmap.cell_lines.map((cellLine: string | null, cellIndex: number) => <tr key={cellLine || `unreported-${cellIndex}`}><th>{display(cellLine)}</th>{combo.synergy_heatmap.metrics.map((metric: string) => { const cell = combo.synergy_heatmap.cells.find((item: Evidence) => item.cell_line === cellLine && item.metric === metric); return <td key={metric} className={cell?.state === "NO_DATA" ? "heatmap-no-data" : "heatmap-observed"}>{!cell || cell.state === "NO_DATA" ? <span className="no-observation">No observation</span> : <><span className="observation-count">{cell.observation_count} experiment{cell.observation_count === 1 ? "" : "s"}</span>{cell.scores?.map((score: Evidence, index: number) => <button type="button" className={`heatmap-score ${reportedLabelClass(score.reported_interpretation)}`} key={`${score.source_id || index}-${index}`} onClick={() => openProvenance(score.source_id)} title="Open this record in the provenance drawer">{display(score.score)} ? {display(score.reported_interpretation)}</button>)}{cell.context_dependent && <strong className="heatmap-warning">Context-dependent ? not directly comparable</strong>}{cell.warning && <small className="heatmap-warning">{cell.warning}</small>}</>}</td>; })}</tr>)}</tbody></table></div> : <p className="quiet-empty">No DrugComb observations are available. Missing data is not additive, antagonistic, or evidence of no effect.</p>}<p className="limitation">{combo.synergy_heatmap.legend?.NO_DATA || "No observation returned; this is not additive or ineffective."} {combo.synergy_heatmap.interpretation}</p></div>}
+            {combo.synergy_heatmap && <div className="combo-heatmap"><div className="heatmap-heading"><div><b>Cell line ? synergy metric</b><small>Individual source scores only; incompatible contexts are not pooled.</small></div><Badge kind={combo.synergy_heatmap.status === "ok" ? "good" : "warning"}>{combo.synergy_heatmap.status}</Badge></div>{combo.synergy_heatmap.cells?.length ? <div className="heatmap-scroll"><table><thead><tr><th>Cell line</th>{combo.synergy_heatmap.metrics.map((metric: string) => <th key={metric}>{metric}</th>)}</tr></thead><tbody>{combo.synergy_heatmap.cell_lines.map((cellLine: string | null, cellIndex: number) => <tr key={cellLine || `unreported-${cellIndex}`}><th>{display(cellLine)}</th>{combo.synergy_heatmap.metrics.map((metric: string) => { const cell = combo.synergy_heatmap.cells.find((item: Evidence) => item.cell_line === cellLine && item.metric === metric); return <td key={metric} className={cell?.state === "NO_DATA" ? "heatmap-no-data" : "heatmap-observed"}>{!cell || cell.state === "NO_DATA" ? <span className="no-observation">No observation</span> : <><span className="observation-count">{cell.observation_count} experiment{cell.observation_count === 1 ? "" : "s"}</span>{cell.scores?.map((score: Evidence, index: number) => <button type="button" className={`heatmap-score ${reportedLabelClass(score.reported_interpretation)}`} key={`${score.source_id || index}-${index}`} onClick={() => openHeatmapProvenance(score, cell)} title="Open the exact provenance record for this observation">{display(score.score)} ? {display(score.reported_interpretation)}</button>)}{cell.context_dependent && <strong className="heatmap-warning">Context-dependent ? not directly comparable</strong>}{cell.warning && <small className="heatmap-warning">{cell.warning}</small>}</>}</td>; })}</tr>)}</tbody></table></div> : <p className="quiet-empty">No DrugComb observations are available. Missing data is not additive, antagonistic, or evidence of no effect.</p>}<p className="limitation">{combo.synergy_heatmap.legend?.NO_DATA || "No observation returned; this is not additive or ineffective."} {combo.synergy_heatmap.interpretation}</p></div>}
             {combo.ratio_analysis?.observations?.length ? <div className="ratio-context"><b>Experimental ratio observations</b><p>{combo.ratio_analysis.note} Ratios and synergy metrics from different contexts must not be treated as directly interchangeable.</p>{combo.ratio_analysis.observations.map((observation: Evidence, index: number) => <div className="record-grid" key={index}><span>Cell line<strong>{display(observation.cell_line)}</strong></span><span>Metric<strong>{display(observation.metric)}</strong></span><span>Reported ratio<strong>{display(observation.reported_ratio)}</strong></span><span>Derived A:B ratio<strong>{observation.derived_ratio ? `${observation.derived_ratio.a_to_b.toFixed(3)} (${observation.derived_ratio.unit})` : "Not available"}</strong></span></div>)}</div> : null}
             <div className="safety-box"><div className="shield">!</div><div><b>Drug interaction screen · {combo.safety?.ddi_risk_level || "UNKNOWN"}</b><p>Decision: {combo.safety?.decision || "REVIEW"} · {combo.safety?.ddi_status || combo.safety?.status || "Interaction evidence unavailable"}. This is computational research screening, not a medical safety determination.</p>{combo.safety?.error && <p>{combo.safety.error}</p>}{combo.safety?.ddi_warnings?.length ? combo.safety.ddi_warnings.map((warning: Evidence, index: number) => <p key={index}>{display(warning.description || warning.severity || warning.source_id)} · {display(warning.source)} · {display(warning.source_id)}</p>) : <p>Missing interaction evidence remains UNKNOWN / REVIEW, never low risk.</p>}{combo.safety?.missing_evidence?.map((item: string, index: number) => <p key={`missing-${index}`}>{item}</p>)}</div></div>
           </div>}
@@ -238,6 +302,6 @@ export default function Home() {
         <footer><span>DrugDiscover AI · research prototype</span><span>Evidence is incomplete, context-dependent, and not a substitute for expert review.</span></footer>
       </div>
     </section>
-    {provenanceOpen && <div className="drawer-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setProvenanceOpen(false); }}><aside className="provenance-drawer" role="dialog" aria-modal="true" aria-labelledby="provenance-title"><div className="drawer-header"><div><span className="eyebrow">AUDIT TRAIL</span><h2 id="provenance-title">Evidence provenance</h2></div><button type="button" className="drawer-close" onClick={() => setProvenanceOpen(false)} aria-label="Close provenance drawer">×</button></div><p className="limitation">Raw records are shown only when the ledger explicitly permits display. Missing metadata is displayed as not reported.</p>{drawerRecords.length ? drawerRecords.map((record, index) => <article className="ledger-record" key={record.record_id || `${record.source || "source"}-${index}`}><div className="ledger-title"><b>{display(record.source)}</b><Badge>{display(record.record_id)}</Badge></div><dl><dt>Source ID</dt><dd>{display(record.source_id)}</dd><dt>Retrieved</dt><dd>{display(record.retrieved_at)}</dd><dt>HTTP status</dt><dd>{display(record.http_status)}</dd><dt>URL</dt><dd><SourceLink url={record.url}/></dd><dt>Transformations</dt><dd>{Array.isArray(record.transformations) && record.transformations.length ? record.transformations.map(String).join("; ") : "Not reported"}</dd><dt>Licence</dt><dd>{display(record.license)}</dd><dt>Content hash</dt><dd className="hash-value">{display(record.content_hash)}</dd></dl>{record.raw_display_permitted === true && record.raw_json !== undefined && record.raw_json !== null ? <details><summary>Raw source record</summary><pre>{typeof record.raw_json === "string" ? record.raw_json : JSON.stringify(record.raw_json, null, 2)}</pre></details> : <p className="limitation">Raw source data is hidden because permission was not explicitly supplied.</p>}</article>) : <div className="quiet-empty">No evidence ledger records were returned for this run.</div>}</aside></div>}
+    {provenanceOpen && <div className="drawer-backdrop" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) setProvenanceOpen(false); }}><aside className="provenance-drawer" role="dialog" aria-modal="true" aria-labelledby="provenance-title"><div className="drawer-header"><div><span className="eyebrow">AUDIT TRAIL</span><h2 id="provenance-title">{provenanceMode === "record" ? "Evidence provenance · selected record" : "Evidence provenance"}</h2></div><button type="button" className="drawer-close" onClick={() => setProvenanceOpen(false)} aria-label="Close provenance drawer">×</button></div><p className="limitation">Raw records are shown only when the ledger explicitly permits display. Missing metadata is displayed as UNKNOWN or NOT_PROVIDED.</p>{provenanceMode === "record" && <><HeatmapCellContext target={provenanceTarget}/><RecordLookupState result={provenanceResult}/></>}{drawerRecords.length ? drawerRecords.map((record, index) => <article className="ledger-record" key={record.record_id || `${record.source || "source"}-${index}`}><div className="ledger-title"><b>{display(record.source)}</b><Badge>{display(record.record_id)}</Badge></div><dl><dt>Source ID</dt><dd>{display(record.source_id)}</dd><dt>Retrieved</dt><dd>{display(record.retrieved_at)}{record.retrieved_at_status === "UNKNOWN" ? " · retrieval time not reported" : ""}{record.retrieved_at_origin === "cached" ? " · cached provider record" : ""}</dd><dt>HTTP status</dt><dd>{record.metadata_status?.http_status === "UNKNOWN" ? "UNKNOWN" : display(record.http_status)}</dd><dt>URL</dt><dd><SourceLink url={record.url}/></dd><dt>Transformations</dt><dd>{Array.isArray(record.transformations) && record.transformations.length ? record.transformations.map(String).join("; ") : "None recorded"}</dd><dt>Licence</dt><dd>{record.license || "NOT_PROVIDED"}</dd><dt>Attribution</dt><dd>{record.attribution || "NOT_PROVIDED"}</dd><dt>Content hash</dt><dd className="hash-value">{display(record.content_hash)}</dd></dl>{record.raw_display_permitted === true && record.raw_json !== undefined && record.raw_json !== null ? <details><summary>Raw source record</summary><pre>{typeof record.raw_json === "string" ? record.raw_json : JSON.stringify(record.raw_json, null, 2)}</pre></details> : <p className="limitation">Raw source data is hidden because permission was not explicitly supplied.</p>}</article>) : provenanceMode === "ledger" ? <div className="quiet-empty">No evidence ledger records were returned for this run.</div> : null}</aside></div>}
   </main>;
 }

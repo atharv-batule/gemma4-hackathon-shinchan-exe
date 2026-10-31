@@ -20,15 +20,17 @@ def _normalize_activity(row: dict) -> dict:
     return {"drug_name":row.get("molecule_pref_name") or molecule_id,"drug_id":molecule_id,"target_id":target_id,"gene_symbol":row.get("target_symbol"),"mechanism":row.get("action_type"),"action":row.get("action_type"),"activity_type":row.get("standard_type"),"activity_value":row.get("standard_value"),"units":row.get("standard_units"),"pchembl_value":row.get("pchembl_value"),"assay_description":row.get("assay_description"),"assay_id":row.get("assay_chembl_id"),"assay_cell_type":row.get("assay_cell_type"),"assay_tissue":row.get("assay_tissue"),"assay_organism":row.get("assay_organism"),"bao_label":row.get("bao_label"),"confidence_score":row.get("confidence_score"),"source":"ChEMBL","source_id":row.get("activity_id"),"url":f"https://www.ebi.ac.uk/chembl/compound_report_card/{molecule_id}" if molecule_id else None}
 
 async def search_drug(name: str) -> dict:
+    meta: dict = {}
     try:
-        data=await get_json(f"{BASE}/molecule.json", {"pref_name__ilike":name, "limit":20})
-        return {"status":"ok", "source":"ChEMBL", "records":_rows(data, "molecules")}
+        data=await get_json(f"{BASE}/molecule.json", {"pref_name__ilike":name, "limit":20}, meta=meta)
+        return {"status":"ok", "source":"ChEMBL", "records":_rows(data, "molecules"), "http_status":meta.get("http_status")}
     except Exception as e: return unavailable("ChEMBL", e)
 
 async def target_activities(target_id: str) -> dict:
+    meta: dict = {}
     try:
-        data=await get_json(f"{BASE}/activity.json", {"target_chembl_id":target_id,"limit":100})
-        return {"status":"ok", "source":"ChEMBL", "records":_rows(data, "activities")}
+        data=await get_json(f"{BASE}/activity.json", {"target_chembl_id":target_id,"limit":100}, meta=meta)
+        return {"status":"ok", "source":"ChEMBL", "records":_rows(data, "activities"), "http_status":meta.get("http_status")}
     except Exception as e: return unavailable("ChEMBL", e)
 
 async def _activities_for_target(target_id: str, gene_symbol: str) -> list[dict]:
