@@ -55,6 +55,7 @@
 .limitations-box b{display:block;margin-bottom:3px;color:#4c5f5a}
 .limitations-box ul{margin:0;padding-left:14px}
 .limitations-box li{margin-bottom:2px}
+.drawer-context{margin:14px 0;padding:12px;border:1px solid #e2ebe6;background:#f4f8f6;border-radius:8px}.drawer-context dl{display:grid;grid-template-columns:120px minmax(0,1fr);gap:7px 12px;margin:9px 0;font-size:9px}.drawer-context dt{color:#83918c}.drawer-context dd{margin:0;color:#3f554d;overflow-wrap:anywhere}.drawer-context p{margin:0}.drawer-state{margin:14px 0;padding:12px;border:1px solid #e2ebe6;border-radius:8px;background:#fff;font-size:10px;color:#4b6159}.drawer-state b{display:block;margin-bottom:4px;font-size:11px;color:#37524a}.drawer-state p{margin:0;font-size:9px;line-height:1.55;color:#71817b}.drawer-state.error{border-color:#e8c9bd;background:#fdf6f3}.drawer-state.error b{color:#8a3b1f}
 
 /* Blue-White-Orange Color-Blind-Safe Synergy Heatmap Scale */
 .heatmap-color-orange-deep{background:#fddbc7;border:1.5px solid #d95f02;color:#7f2704;font-weight:600}

@@ -3,9 +3,13 @@ import time
 from typing import Any
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
-from backend.services.provenance_ledger import attach_provenance, build_evidence_ledger, make_source_check, source_checks_snapshot
+from backend.services.provenance_ledger import (
+    annotate_heatmap_provenance, attach_provenance, build_evidence_ledger,
+    find_provenance_records, get_provenance_record, make_source_check, source_checks_snapshot,
+)
 
 load_dotenv()
 
@@ -62,8 +66,11 @@ async def combinations(q: Pair):
     # derived ratio/heatmap views, so summaries do not become duplicate rows.
     attach_provenance(result, {"DrugComb":("DrugComb",records)})
     result["evidence_ledger"] = build_evidence_ledger({"evidence": result.get("evidence", [])})
-    result["synergy_heatmap"] = build_synergy_heatmap(
-        result.get("evidence", []), source_status=records.get("status", "unavailable")
+    result["synergy_heatmap"] = annotate_heatmap_provenance(
+        build_synergy_heatmap(
+            result.get("evidence", []), source_status=records.get("status", "unavailable")
+        ),
+        result["evidence_ledger"],
     )
     return contract(result,t)
 @app.get("/api/combinations/mock-demo")
@@ -178,6 +185,91 @@ def verify_claims_route(payload: ClaimVerificationRequest):
     t=time.perf_counter()
     result=verify_claims(payload.claims, payload.evidence_ledger)
     return contract(result,t)
+MAX_PROVENANCE_ID_LENGTH = 512
+
+def _clean_provenance_id(value: Any) -> str | None:
+    """Return a normalized identifier or None when it is unusable."""
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip()
+    if not cleaned or len(cleaned) > MAX_PROVENANCE_ID_LENGTH:
+        return None
+    if any(ord(char) < 32 or ord(char) == 127 for char in cleaned):
+        return None
+    return cleaned
+
+def _provenance_failure(detail: str) -> JSONResponse:
+    return JSONResponse(status_code=503, content={
+        "status": "unavailable", "records": [], "record": None,
+        "reason": f"Provenance store could not be read: {detail}",
+    })
+
+@app.get("/api/provenance/records")
+def provenance_records(record_id: str | None = None, source: str | None = None,
+                       source_id: str | None = None, experiment_id: str | None = None):
+    """Retrieve stored provenance records by exact record/source/experiment ID."""
+    filters = {}
+    for name, value in (("record_id", record_id), ("source_id", source_id), ("experiment_id", experiment_id)):
+        if value is None:
+            continue
+        cleaned = _clean_provenance_id(value)
+        if cleaned is None:
+            return JSONResponse(status_code=400, content={
+                "status": "invalid_request", "records": [],
+                "reason": f"'{name}' is not a valid provenance identifier.",
+            })
+        filters[name] = cleaned
+    if source is not None:
+        cleaned_source = _clean_provenance_id(source)
+        if cleaned_source is None:
+            return JSONResponse(status_code=400, content={
+                "status": "invalid_request", "records": [],
+                "reason": "'source' is not a valid source label.",
+            })
+        filters["source"] = cleaned_source
+    if not filters:
+        return JSONResponse(status_code=400, content={
+            "status": "invalid_request", "records": [],
+            "reason": "At least one exact filter (record_id, source, source_id or experiment_id) is required.",
+        })
+    try:
+        records = find_provenance_records(**filters)
+    except Exception as exc:
+        return _provenance_failure(type(exc).__name__)
+    if not records:
+        return JSONResponse(status_code=404, content={
+            "status": "not_found", "records": [], "count": 0,
+            "reason": "No stored provenance record matches the supplied exact identifiers.",
+            "filters": filters,
+        })
+    return {
+        "status": "found" if len(records) == 1 else "ambiguous",
+        "records": records, "count": len(records), "filters": filters,
+        "ambiguous": len(records) > 1,
+    }
+
+@app.get("/api/provenance/records/{record_id:path}")
+def provenance_record(record_id: str):
+    """Retrieve one stored provenance record by its exact record_id."""
+    cleaned = _clean_provenance_id(record_id)
+    if cleaned is None:
+        return JSONResponse(status_code=400, content={
+            "status": "invalid_record_id", "record": None, "records": [],
+            "record_id": record_id,
+            "reason": "The record ID is empty, too long, or contains control characters.",
+        })
+    try:
+        record = get_provenance_record(cleaned)
+    except Exception as exc:
+        return _provenance_failure(type(exc).__name__)
+    if record is None:
+        return JSONResponse(status_code=404, content={
+            "status": "not_found", "record": None, "records": [],
+            "record_id": cleaned,
+            "reason": "No stored provenance record has this record_id.",
+        })
+    return {"status": "found", "record": record, "records": [record], "record_id": cleaned}
+
 @app.get("/api/evidence/{candidate_id}")
 def evidence(candidate_id: str):
     t=time.perf_counter(); return contract({"status":"unavailable", "items":[], "reason":"No candidate evidence cache is configured.", "candidate_id":candidate_id},t)

@@ -35,6 +35,11 @@ def analyze_combination(drug_a: str, drug_b: str,
             continue
         metric = raw.get("metric") or raw.get("synergy_method")
         metric_norm = next((m for m in SYNERGY_METRICS if str(metric).casefold() == m.casefold()), None)
+        # Record label canonicalisation only when this engine actually changes
+        # the source-reported metric spelling.
+        transformations = raw.get("transformations") if isinstance(raw.get("transformations"), list) else []
+        if metric_norm and metric is not None and str(metric) != metric_norm:
+            transformations = [*transformations, f"identifier_canonicalisation: metric '{metric}' -> '{metric_norm}'"]
         evidence.append({
             "source": raw.get("source", "DrugComb"),
             "source_id": raw.get("source_id") or raw.get("id"),
@@ -61,6 +66,7 @@ def analyze_combination(drug_a: str, drug_b: str,
             # Keep original provider fields for auditability, including source-specific
             # concentration columns and response values not mapped above.
             "source_record": dict(raw),
+            "transformations": transformations,
         })
     return {
         "drug_a": drug_a, "drug_b": drug_b,

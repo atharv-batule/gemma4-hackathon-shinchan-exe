@@ -1,4 +1,4 @@
-# DrugDiscover AI — Project Status
+# DrugDiscover AI ï¿½ Project Status
 
 **Checkpoint date:** 2026-10-31  
 **Scope:** Source review and verification checkpoint. Backend tests and a cached frontend build were run; provider live calls and registry installation were attempted.  
@@ -81,7 +81,7 @@ The highest-impact gaps are: DrugComb is disabled until its deployed query param
 - **Status:** `PARTIAL`
 - **Files:** `backend/engines/repurposing_engine.py`, `backend/engines/target_analysis.py`, `backend/services/opentargets_service.py`, `backend/services/chembl_service.py`, `frontend/app/page.tsx`
 - **What works:** Candidate hypotheses are generated from target-linked records; evidence provenance and activity values are retained. The completeness score is labeled as coverage, not efficacy, and evidence level is not inferred as clinical.
-- **What is missing:** The default live source chain is unverified. Experimental, preclinical, and clinical evidence dimensions are currently marked “not separately assessed,” not comprehensively assembled or classified.
+- **What is missing:** The default live source chain is unverified. Experimental, preclinical, and clinical evidence dimensions are currently marked ï¿½not separately assessed,ï¿½ not comprehensively assembled or classified.
 - **Next action:** Verify the Open Targets?ChEMBL live path, then add separately sourced evidence classification only where source records support it. Do not treat the rank/coverage score as treatment efficacy.
 
 ### DrugComb experimental combination provider
@@ -224,6 +224,38 @@ The highest-impact gaps are: DrugComb is disabled until its deployed query param
 - **What is missing:** Current environment has no RDKit, so valid/invalid parsing and calculated properties have not been exercised.
 - **Next action:** Install RDKit in a supported environment and add/run valid SMILES, invalid SMILES, and descriptor tests.
 
+## Provenance and source checks â€” completion update (2026-10-31)
+
+### Exact heatmap-to-provenance navigation
+
+- **Status:** `DONE` for mocked provider records; live DrugComb records remain unavailable
+- **Files:** `backend/services/provenance_ledger.py`, `backend/main.py`, `frontend/app/page.tsx`, `frontend/lib/provenance.ts`, `frontend/app/styles.css`
+- **What works:** Each heatmap observation is annotated with the exact `record_id` of the ledger record whose source and source ID match it. Matching requires both identifiers and exactly one ledger record; missing source, missing source ID, unknown pairs, and duplicated source IDs are marked `UNAVAILABLE`/`AMBIGUOUS` with no record ID. Clicking a cell opens a record-only drawer for that exact record, preserves the cell's metric, score, cell line, and experimental context, and shows "Provenance unavailable" with a reason when nothing matches. The full ledger is never opened as a fallback.
+- **What is missing:** DrugComb is still unavailable by default, so a live run produces no heatmap observations. The provenance record store is process-local and is emptied on backend restart.
+- **Next action:** Verify a live DrugComb response and confirm the same exact-match behavior on real rows.
+
+### Persistent (process-local) provenance retrieval
+
+- **Status:** `DONE`
+- **Files:** `backend/services/provenance_ledger.py`, `backend/main.py`, `frontend/lib/provenance.ts`, `frontend/app/page.tsx`
+- **What works:** `GET /api/provenance/records/{record_id}` retrieves one stored record by exact ID (400 invalid ID, 404 unknown, 503 store failure). `GET /api/provenance/records` retrieves records by exact `record_id`, `source`, `source_id`, or `experiment_id`, requires at least one filter, and returns 404 when nothing matches. Ledger generation and existing response contracts are unchanged; built records are also retained in a bounded 5,000-record store, so the drawer retrieves them independently of the frontend session.
+- **What is missing:** The store is in memory, not SQLite; retrieval does not survive a restart and is not shared across workers.
+- **Next action:** Move the store into the planned persistence layer while keeping the same response contract.
+
+### Provenance metadata
+
+- **Status:** `DONE` for metadata that adapters actually supply
+- **Files:** `backend/services/provenance_ledger.py`, `backend/services/biomedical_data.py`, `backend/services/pubchem_service.py`, `backend/services/chembl_service.py`, `backend/engines/combination_engine.py`, `frontend/app/page.tsx`
+- **What works:** Declared transformations are recorded, including unit conversions reported by an adapter, metric canonicalisation performed by the combination engine, and source ID string coercion actually performed by the ledger. PubChem and ChEMBL record the observed HTTP status of the request that supplied records. Licence and attribution are preserved when supplied and otherwise reported as `NOT_PROVIDED`; a missing HTTP status or retrieval time is `UNKNOWN`. Cached envelopes keep their original `retrieved_at` and are marked `retrieved_at_origin=cached`. Raw records are still returned only when `raw_display_permitted` is true.
+- **What is missing:** Open Targets, PubMed, DrugComb, and DrugBank do not expose an HTTP status, so those ledger records stay `UNKNOWN`. No provider currently supplies a licence/attribution value, so those remain `NOT_PROVIDED`.
+- **Next action:** Add status capture to the remaining adapters and set licence/attribution only from verified provider documentation.
+
+### Tests added for provenance retrieval
+
+- **Status:** `DONE`
+- **Files:** `backend/tests/test_provenance_retrieval.py` (20 tests), `frontend/lib/provenance.test.ts` (9 tests), `frontend/tsconfig.json`
+- **What works:** Backend coverage includes exact heatmap-to-record matching, missing `source_id`, missing/unmatched records, ambiguous IDs, individual retrieval, unknown and invalid IDs, query filters, store failure, restricted raw display, transformation metadata, present/missing HTTP status and licence, cached retrieval timestamps, and safety remaining `UNKNOWN` when DDI evidence was not checked. Frontend tests cover loading, found, empty, ambiguous, error, and no-identifier states. The full backend suite now passes 118 tests.
+
 ## Prioritized next-step checklist
 
 1. [ ] Verify DrugComb's active `/response/` request parameters, response schema, and access requirements from authoritative current documentation or a working response; do not set guessed env vars.
@@ -233,7 +265,8 @@ The highest-impact gaps are: DrugComb is disabled until its deployed query param
 5. [ ] Run live Open Targets?ChEMBL?PubChem checks and capture a staged disease-to-combination workflow with source provenance.
 6. [ ] Configure Gemma and verify actual evidence-grounded output/citation filtering end to end.
 7. [ ] Install RDKit in the target runtime and verify valid/invalid structure parsing and computed descriptors.
-8. [ ] Only then prioritize persistence/reports, populated graph, DGIdb/ZINC workflow use, ADMET, structural alerts, and docking.
+8. [x] Add exact heatmap-cell-to-record provenance navigation, record retrieval endpoints, and metadata status fields (backend suite 118 passed; frontend helper tests 9 passed; build passed with cached Next.js 15.5.5).
+9. [ ] Only then prioritize persistence/reports, populated graph, DGIdb/ZINC workflow use, ADMET, structural alerts, and docking.
 
 ## Exact project commands
 
