@@ -102,6 +102,45 @@ class ClaimCitationVerifierTests(unittest.TestCase):
         result = verify_claims([claim], [ledger_record])["results"][0]
         self.assertEqual(result["status"], VERIFIED)
 
+    def test_batch_with_all_four_statuses_and_summary_counts(self):
+        claims = [
+            # 1. VERIFIED
+            self._claim(record_id="ledger-1", details={
+                "drug_names": ["Drug A", "Drug B"], "metric": "ZIP",
+                "cell_line": "A549", "units": "uM", "values": {"ZIP": 7.2},
+            }),
+            # 2. ID_ONLY
+            self._claim(record_id="ledger-1", details={"unreported_field": 123}),
+            # 3. MISMATCH
+            self._claim(record_id="ledger-1", details={"metric": "ZIP", "values": {"ZIP": 99.9}}),
+            # 4. UNVERIFIABLE (fake PMID)
+            self._claim(source="PubMed", record_id="PMID:FAKE-TEST-0001"),
+            # 5. UNVERIFIABLE (uncited sourced)
+            self._claim(source=None),
+        ]
+        result = verify_claims(claims, self.ledger)
+        self.assertEqual(result["status"], "complete")
+        self.assertEqual(result["summary"][VERIFIED], 1)
+        self.assertEqual(result["summary"][ID_ONLY], 1)
+        self.assertEqual(result["summary"][MISMATCH], 1)
+        self.assertEqual(result["summary"][UNVERIFIABLE], 2)
+        self.assertEqual(len(result["results"]), 5)
+
+    def test_limitations_and_disclaimer_are_explicitly_returned(self):
+        result = verify_claims([self._claim()], self.ledger)
+        self.assertIn("limitations", result)
+        self.assertTrue(any("scientific entailment" in item.lower() for item in result["limitations"]))
+        self.assertTrue(any("unit conversion" in item.lower() for item in result["limitations"]))
+
+    def test_structured_checks_detail_mismatch_values(self):
+        claim = self._claim(details={"metric": "ZIP", "values": {"ZIP": 15.5}})
+        result = verify_claims([claim], self.ledger)["results"][0]
+        self.assertEqual(result["status"], MISMATCH)
+        mismatch_check = next(c for c in result["checks"] if c.get("status") == "mismatch")
+        self.assertEqual(mismatch_check["field"], "ZIP")
+        self.assertEqual(mismatch_check["expected"], 15.5)
+        self.assertEqual(mismatch_check["source_value"], 7.2)
+
 
 if __name__ == "__main__":
     unittest.main()

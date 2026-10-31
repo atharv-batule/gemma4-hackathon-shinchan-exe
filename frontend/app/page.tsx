@@ -3,6 +3,8 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { initialProvenanceState, loadProvenanceRecord } from "../lib/provenance";
 import type { ProvenanceResult, ProvenanceTarget } from "../lib/provenance";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { CitationVerificationTable } from "./CitationVerificationTable";
 
 type Evidence = Record<string, any>;
 type Candidate = {
@@ -123,6 +125,8 @@ export default function Home() {
   const [explainBusy, setExplainBusy] = useState(false);
   const [citationDemo, setCitationDemo] = useState<any>(null);
   const [citationDemoBusy, setCitationDemoBusy] = useState(false);
+  const [sampleBusy, setSampleBusy] = useState(false);
+  const [reverifyBusy, setReverifyBusy] = useState(false);
   const [health, setHealth] = useState<any>(null);
   const [provenanceOpen, setProvenanceOpen] = useState(false);
   const [provenanceMode, setProvenanceMode] = useState<"ledger" | "record">("ledger");
@@ -248,14 +252,253 @@ export default function Home() {
     finally { setExplainBusy(false); }
   }
 
+  async function reverifyExplanationClaims() {
+    if (!explanation?.data?.claims?.length) return;
+    setReverifyBusy(true);
+    try {
+      const res = await api("/api/ai/verify-claims", {
+        claims: explanation.data.claims,
+        evidence_ledger: evidenceLedger,
+      });
+      const verification = res.data || res;
+      setExplanation((prev: any) => ({
+        ...prev,
+        validation: {
+          ...(prev?.validation || {}),
+          claim_verification: verification,
+        },
+      }));
+    } catch (err) {
+      console.error("Re-verification request failed", err);
+    } finally {
+      setReverifyBusy(false);
+    }
+  }
+
+  async function loadSampleExplanation() {
+    setSampleBusy(true);
+    try {
+      const targetLedger = evidenceLedger.length > 0 ? evidenceLedger : [
+        {
+          record_id: "PubMed:PMID:3829104",
+          source: "PubMed",
+          source_id: "PMID:3829104",
+          url: "https://pubmed.ncbi.nlm.nih.gov/3829104",
+          raw_json: { pmid: "3829104", title: "Target engagement and cell line response", journal: "Cell Oncol", year: "2025" },
+        },
+        {
+          record_id: "DrugComb:block-501",
+          source: "DrugComb",
+          source_id: "block-501",
+          url: "https://drugcomb.org",
+          raw_json: { drug_a: "Compound A", drug_b: "Compound B", metric: "ZIP", ZIP: 8.4, cell_line: "H1299", unit: "uM" },
+        },
+      ];
+
+      const primaryRecord = targetLedger[0];
+      const secondaryRecord = targetLedger[1] || targetLedger[0];
+
+      const sampleClaims = [
+        {
+          claim_text: `Biological target association observed in literature for ${primaryRecord.source_id || primaryRecord.record_id}.`,
+          citation: { source: primaryRecord.source || "PubMed", record_id: primaryRecord.record_id || primaryRecord.source_id },
+          claim_tag: "sourced",
+          details: primaryRecord.raw_json ? { values: primaryRecord.raw_json.pmid ? { pmid: primaryRecord.raw_json.pmid } : undefined } : {},
+        },
+        {
+          claim_text: `Reported combination synergy in vitro under specific experimental conditions.`,
+          citation: { source: secondaryRecord.source || "DrugComb", record_id: secondaryRecord.record_id || secondaryRecord.source_id },
+          claim_tag: "sourced",
+          details: secondaryRecord.raw_json?.metric ? {
+            metric: secondaryRecord.raw_json.metric,
+            cell_line: secondaryRecord.raw_json.cell_line,
+            units: secondaryRecord.raw_json.unit,
+            values: { [secondaryRecord.raw_json.metric]: secondaryRecord.raw_json.ZIP ?? 8.4 },
+          } : {},
+        },
+        {
+          claim_text: `Assay context and protocol specifics were not documented in detail.`,
+          citation: { source: secondaryRecord.source || "DrugComb", record_id: secondaryRecord.record_id || secondaryRecord.source_id },
+          claim_tag: "sourced",
+          details: {},
+        },
+        {
+          claim_text: `Combined pathway target modulation may provide a candidate hypothesis for experimental follow-up.`,
+          citation: null,
+          claim_tag: "inferred",
+          details: {},
+        },
+      ];
+
+      const verificationRes = await api("/api/ai/verify-claims", {
+        claims: sampleClaims,
+        evidence_ledger: targetLedger,
+      });
+
+      setExplanation({
+        status: "ok",
+        model: "gemma-4 (grounded sample)",
+        data: {
+          summary: "Screening of retrieved target associations and experimental combination observations. Target modulation provides a mechanistic hypothesis; experimental conditions reflect in vitro assays and are not clinical regimens.",
+          key_findings: [
+            `Literature evidence retrieved for ${primaryRecord.source_id || primaryRecord.record_id}.`,
+            `Experimental combination data indicates specific cell line observation.`,
+            "Reported concentration ratios represent in vitro assay matrices, not therapeutic dosing.",
+          ],
+          uncertainty: [
+            "In vitro synergy does not predict in vivo pharmacokinetics or clinical efficacy.",
+            "Cell line context-dependence precludes cross-study pooling.",
+          ],
+          missing_evidence: [
+            "Drug-drug interaction (DDI) safety data is unavailable and remains REVIEW/UNKNOWN.",
+            "Long-term toxicity profiles have not been established.",
+          ],
+          citations: [primaryRecord.record_id || primaryRecord.source_id, secondaryRecord.record_id || secondaryRecord.source_id].filter(Boolean),
+          claims: sampleClaims,
+          research_hypothesis: "Target engagement combined with secondary pathway inhibition may warrant controlled in vitro validation.",
+        },
+        validation: {
+          schema_valid: true,
+          unsupported_citations_removed: 0,
+          citation_ids_checked_against_bundle: true,
+          semantic_grounding: "requires human review",
+          claim_verification: verificationRes.data || verificationRes,
+        },
+      });
+    } catch (err) {
+      setExplanation({
+        status: "unavailable",
+        error: err instanceof Error ? err.message : "Failed to load sample explanation",
+      });
+    } finally {
+      setSampleBusy(false);
+    }
+  }
+
+  async function runComprehensiveDemo() {
+    setCitationDemoBusy(true);
+    setCitationDemo(null);
+    try {
+      const targetLedger = evidenceLedger.length > 0 ? evidenceLedger : [
+        {
+          record_id: "DrugComb:demo-block-17",
+          source: "DrugComb",
+          source_id: "demo-block-17",
+          url: "https://drugcomb.org",
+          retrieved_at: new Date().toISOString(),
+          raw_json: {
+            drug_a: "Aspirin",
+            drug_b: "Metformin",
+            metric: "ZIP",
+            ZIP: 7.2,
+            cell_line: "A549",
+            conc_row: 0.5,
+            conc_col: 1.0,
+            unit: "uM",
+            study: "Benchmark Study",
+            assay: "dose matrix",
+          },
+        },
+        {
+          record_id: "PubMed:PMID:9990001",
+          source: "PubMed",
+          source_id: "PMID:9990001",
+          url: "https://pubmed.ncbi.nlm.nih.gov",
+          retrieved_at: new Date().toISOString(),
+          raw_json: {
+            pmid: "9990001",
+            title: "Observed synergistic inhibition in vitro",
+            journal: "J Biomed Sci",
+            year: "2026",
+          },
+        },
+      ];
+
+      const refRecord = targetLedger[0];
+      const refSource = refRecord.source || "DrugComb";
+      const refId = refRecord.record_id || refRecord.source_id;
+      const refRaw = refRecord.raw_json || refRecord.normalized_record || {};
+
+      const claims = [
+        // 1. VERIFIED: Source and structured fields match the ledger record
+        {
+          claim_text: `Reported experimental observation for ${refRaw.drug_a || "Drug A"} and ${refRaw.drug_b || "Drug B"} in ${refRaw.cell_line || "A549"}.`,
+          citation: { source: refSource, record_id: refId },
+          claim_tag: "sourced",
+          details: {
+            drug_names: [refRaw.drug_a || "Drug A", refRaw.drug_b || "Drug B"].filter(Boolean),
+            metric: refRaw.metric || "ZIP",
+            cell_line: refRaw.cell_line || "A549",
+            units: refRaw.unit || refRaw.units || "uM",
+            values: refRaw.ZIP != null ? { ZIP: refRaw.ZIP } : undefined,
+          },
+        },
+        // 2. ID_ONLY: Citation source and record ID match, but details are absent/unreported
+        {
+          claim_text: `Cited record ${refId} without declared structured assay values.`,
+          citation: { source: refSource, record_id: refId },
+          claim_tag: "sourced",
+          details: {
+            unreported_toxicity_assay: "none",
+          },
+        },
+        // 3. MISMATCH: Citation exists in ledger, but declared numeric value/metric conflicts
+        {
+          claim_text: `Conflicting reported synergy score for ${refId}.`,
+          citation: { source: refSource, record_id: refId },
+          claim_tag: "sourced",
+          details: {
+            metric: refRaw.metric || "ZIP",
+            values: { [refRaw.metric || "ZIP"]: 99.9 },
+          },
+        },
+        // 4. UNVERIFIABLE: Nonexistent fake PMID fixture
+        {
+          claim_text: "Synthetic test claim with a deliberately nonexistent PMID fixture.",
+          citation: { source: "PubMed", record_id: "PMID:FAKE-TEST-0001" },
+          claim_tag: "sourced",
+          details: {},
+        },
+        // 5. UNVERIFIABLE: Sourced claim missing citation
+        {
+          claim_text: "Factual efficacy claim without any cited literature or ledger reference.",
+          citation: null,
+          claim_tag: "sourced",
+          details: {},
+        },
+        // 6. UNVERIFIABLE: Untracked computational hypothesis
+        {
+          claim_text: "Inferred pathway modulation hypothesis requiring experimental validation.",
+          citation: null,
+          claim_tag: "inferred",
+          details: {},
+        },
+      ];
+
+      const res = await api("/api/ai/verify-claims", {
+        claims,
+        evidence_ledger: targetLedger,
+      });
+      setCitationDemo(res.data || res);
+    } catch (err) {
+      setCitationDemo({
+        status: "unavailable",
+        reason: err instanceof Error ? err.message : "Verifier endpoint unavailable",
+      });
+    } finally {
+      setCitationDemoBusy(false);
+    }
+  }
+
   async function runFakeCitationCheck() {
     setCitationDemoBusy(true); setCitationDemo(null);
     try {
-      setCitationDemo(await api("/api/ai/verify-claims", { claims: [{
+      const res = await api("/api/ai/verify-claims", { claims: [{
         claim_text: "Synthetic test claim with a deliberately nonexistent PMID.",
         citation: { source: "PubMed", record_id: "PMID:FAKE-TEST-0001" },
         claim_tag: "sourced", details: {},
-      }], evidence_ledger: evidenceLedger }));
+      }], evidence_ledger: evidenceLedger });
+      setCitationDemo(res.data || res);
     } catch (err) { setCitationDemo({ status: "unavailable", reason: err instanceof Error ? err.message : "Verifier endpoint unavailable" }); }
     finally { setCitationDemoBusy(false); }
   }
@@ -285,7 +528,63 @@ export default function Home() {
             {result.data?.limitations?.map((limitation, index) => <p className="limitation" key={index}>• {limitation}</p>)}
           </section>
           <div className="two-col"><section className="panel compact"><PanelTitle kicker="PUBLICATIONS" title="Literature evidence"/>{result.data?.publications?.length ? result.data.publications.map((paper, index) => <div className="publication" key={paper.pmid || paper.source_id || index}><b>{display(paper.title || paper.pmid || paper.source_id)}</b><span>{display(paper.journal)} · {display(paper.year)} · PMID {display(paper.pmid)}</span><SourceLink url={paper.url} label="View source"/></div>) : <div className="quiet-empty">No publication records returned for this query.</div>}</section>
-            <section className="panel compact ai-panel"><PanelTitle kicker="GEMMA 4 · CONFIGURABLE" title="Evidence explanation"/><p className="subcopy">The explanation uses retrieved records. Model availability depends on server configuration.</p><button className="secondary-btn" disabled={explainBusy} onClick={explain}>{explainBusy ? "Requesting explanation…" : "Explain selected evidence"}</button><button className="secondary-btn verifier-demo-button" type="button" disabled={citationDemoBusy} onClick={runFakeCitationCheck}>{citationDemoBusy ? "Checking fake test ID?" : "Demo verifier with fake PMID"}</button><p className="limitation">Synthetic verifier test only: PMID:FAKE-TEST-0001 is not a real citation or biomedical evidence.</p>{citationDemo?.data?.results?.map((claim: Evidence, index: number) => <div className="claim-check" key={index}><Badge kind="warning">{claim.status}</Badge><span>{claim.claim_text}</span><small>{claim.reason_code}: {claim.reason}</small></div>)}{citationDemo?.reason && <p className="limitation">{citationDemo.reason}</p>}{explanation && <div className="explanation"><Badge kind={explanation.status === "ok" ? "good" : "warning"}>{explanation.status || "response"}</Badge><p>{explanation.data?.summary || explanation.reason || explanation.error || "No explanation returned."}</p>{explanation.data?.key_findings?.length ? <ul>{explanation.data.key_findings.map((finding: string, index: number) => <li key={index}>{finding}</li>)}</ul> : null}{explanation.data?.uncertainty?.length ? <p>Uncertainty: {explanation.data.uncertainty.join("; ")}</p> : null}{explanation.data?.missing_evidence?.length ? <p>Missing evidence: {explanation.data.missing_evidence.join("; ")}</p> : null}{explanation.data?.citations?.length ? <p>Evidence source IDs: {explanation.data.citations.map((citation: string) => <Badge key={citation}>{citation}</Badge>)}</p> : <p className="limitation">No validated evidence citations were returned.</p>}{explanation.data?.research_hypothesis && <p>Research hypothesis: {explanation.data.research_hypothesis}</p>}{explanation.validation?.claim_verification?.results?.length ? <div className="claim-verification"><b>Deterministic claim checks</b>{explanation.validation.claim_verification.results.map((claim: Evidence, index: number) => <div className="claim-check" key={`${claim.claim_index}-${index}`}><Badge kind={claim.status === "VERIFIED" ? "good" : "warning"}>{claim.status}</Badge><span>{claim.claim_tag}: {claim.claim_text}</span><small>{claim.citation_source || "No source"} · {claim.citation_record_id || "No record ID"} · {claim.reason}</small></div>)}</div> : null}</div>}</section></div>
+            <section className="panel compact ai-panel">
+              <PanelTitle kicker="GEMMA 4 · CONFIGURABLE" title="Evidence explanation & citation verifier" />
+              <p className="subcopy">Gemma 4 provides auditable evidence summaries. The deterministic verifier validates citation IDs and declared structured fields without LLM judging.</p>
+              <div className="verifier-toolbar">
+                <button className="secondary-btn" disabled={explainBusy} onClick={explain}>
+                  {explainBusy ? "Requesting explanation…" : "Explain selected evidence"}
+                </button>
+                <button className="secondary-btn" type="button" disabled={sampleBusy} onClick={loadSampleExplanation}>
+                  {sampleBusy ? "Loading explanation…" : "Load sample explanation with claims"}
+                </button>
+                <button className="secondary-btn" type="button" disabled={citationDemoBusy} onClick={runComprehensiveDemo}>
+                  {citationDemoBusy ? "Checking claims…" : "Demo all 4 verifier states"}
+                </button>
+                <button className="secondary-btn verifier-demo-button" type="button" disabled={citationDemoBusy} onClick={runFakeCitationCheck}>
+                  {citationDemoBusy ? "Checking fake ID…" : "Demo verifier with fake PMID"}
+                </button>
+              </div>
+              <p className="limitation">Synthetic verifier test only: PMID:FAKE-TEST-0001 is not a real citation or biomedical evidence.</p>
+
+              {/* Normal explanation rendering with full detailed status table */}
+              {explanation && (
+                <div className="explanation">
+                  <Badge kind={explanation.status === "ok" ? "good" : "warning"}>{explanation.status || "response"}</Badge>
+                  <p>{explanation.data?.summary || explanation.reason || explanation.error || "No explanation returned."}</p>
+                  {explanation.data?.key_findings?.length ? <ul>{explanation.data.key_findings.map((finding: string, index: number) => <li key={index}>{finding}</li>)}</ul> : null}
+                  {explanation.data?.uncertainty?.length ? <p><strong>Uncertainty:</strong> {explanation.data.uncertainty.join("; ")}</p> : null}
+                  {explanation.data?.missing_evidence?.length ? <p><strong>Missing evidence:</strong> {explanation.data.missing_evidence.join("; ")}</p> : null}
+                  {explanation.data?.citations?.length ? <p><strong>Evidence source IDs:</strong> {explanation.data.citations.map((citation: string) => <Badge key={citation}>{citation}</Badge>)}</p> : <p className="limitation">No validated evidence citations were returned.</p>}
+                  {explanation.data?.research_hypothesis && <p><strong>Research hypothesis:</strong> {explanation.data.research_hypothesis}</p>}
+
+                  {/* Detailed Status Table for Explanation Claim Verification */}
+                  {explanation.validation?.claim_verification && (
+                    <CitationVerificationTable
+                      verification={explanation.validation.claim_verification}
+                      title="Explanation Claim Verification"
+                      subtitle="Deterministic verification of atomic claims extracted from explanation against current evidence ledger."
+                      onOpenProvenance={openProvenance}
+                      onReverify={explanation.data?.claims?.length ? reverifyExplanationClaims : undefined}
+                      reverifyBusy={reverifyBusy}
+                    />
+                  )}
+                </div>
+              )}
+
+              {/* Detailed Status Table for Interactive Demo / Standalone Verification */}
+              {citationDemo && (
+                <CitationVerificationTable
+                  verification={citationDemo}
+                  title="Interactive Verifier Test Results"
+                  subtitle="Detailed status audit of test claims against evidence ledger."
+                  onOpenProvenance={openProvenance}
+                  onReverify={runComprehensiveDemo}
+                  reverifyBusy={citationDemoBusy}
+                />
+              )}
+            </section>
+          </div>
         </>}
         <section className="panel" id="combinations"><PanelTitle kicker="02 · EXPERIMENTAL EVIDENCE" title="Investigate a drug combination" note="Source-reported findings only. Experimental conditions are not clinical doses."/><form className="combo-form" onSubmit={analyzeCombo}><div className="field"><label htmlFor="drug-a">Drug A</label><input id="drug-a" value={drugA} onChange={event => setDrugA(event.target.value)} placeholder="Drug name or identifier" required/></div><span className="plus">+</span><div className="field"><label htmlFor="drug-b">Drug B</label><input id="drug-b" value={drugB} onChange={event => setDrugB(event.target.value)} placeholder="Drug name or identifier" required/></div><button disabled={comboBusy}>{comboBusy ? "Checking…" : "Check evidence"}</button></form>
           <button type="button" className="secondary-btn" disabled={identityBusy} onClick={resolveIdentities}>{identityBusy ? "Resolving identities…" : "Resolve drug identities and properties"}</button>
