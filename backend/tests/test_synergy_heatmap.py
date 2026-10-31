@@ -67,6 +67,26 @@ class SynergyHeatmapTests(unittest.TestCase):
         self.assertIsNone(cell["warning"])
         self.assertEqual(len(cell["scores"]), 2)
 
+    def test_heatmap_status_values_available_empty_unavailable(self):
+        available_res = build_synergy_heatmap([{"cell_line": "MCF7", "metric": "ZIP", "score": 3.0}], source_status="available")
+        self.assertEqual(available_res["status"], "available")
+        empty_res = build_synergy_heatmap([], source_status="available")
+        self.assertEqual(empty_res["status"], "empty")
+        unavailable_res = build_synergy_heatmap([], source_status="unavailable")
+        self.assertEqual(unavailable_res["status"], "unavailable")
+
+    def test_diverging_metrics_and_multiple_experiments_per_cell(self):
+        records = [
+            {"cell_line": "A549", "metric": "ZIP", "score": 12.0, "reported_interpretation": "synergistic"},
+            {"cell_line": "A549", "metric": "Bliss", "score": -5.0, "reported_interpretation": "antagonistic"},
+            {"cell_line": "A549", "metric": "Loewe", "score": 0.0, "reported_interpretation": "neutral"},
+            # HSA missing for A549 -> must be NO_DATA
+        ]
+        result = build_synergy_heatmap(records, source_status="available")
+        hsa_cell = next(c for c in result["cells"] if c["cell_line"] == "A549" and c["metric"] == "HSA")
+        self.assertEqual(hsa_cell["state"], "NO_DATA")
+        self.assertEqual(hsa_cell["observation_count"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

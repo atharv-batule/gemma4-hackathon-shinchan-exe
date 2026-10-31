@@ -64,6 +64,127 @@ function reportedLabelClass(label: unknown) {
   return "heatmap-label-unknown";
 }
 
+function heatmapScoreColorClass(score?: Evidence): string {
+  if (!score) return "heatmap-color-neutral";
+  const interp = (score.reported_interpretation || "").toLowerCase();
+  const num = typeof score.score === "number" ? score.score : parseFloat(String(score.score));
+
+  if (["synergy", "synergistic", "positive"].includes(interp)) {
+    if (!isNaN(num) && num >= 15) return "heatmap-color-orange-deep";
+    return "heatmap-color-orange";
+  }
+  if (["antagonism", "antagonistic", "negative"].includes(interp)) {
+    if (!isNaN(num) && num <= -15) return "heatmap-color-blue-deep";
+    return "heatmap-color-blue";
+  }
+  if (["additive", "neutral"].includes(interp)) {
+    return "heatmap-color-white";
+  }
+
+  // Fallback to numeric value if interpretation is absent/unknown
+  if (!isNaN(num)) {
+    if (num >= 15) return "heatmap-color-orange-deep";
+    if (num > 5) return "heatmap-color-orange";
+    if (num <= -15) return "heatmap-color-blue-deep";
+    if (num < -5) return "heatmap-color-blue";
+    return "heatmap-color-white";
+  }
+
+  return "heatmap-color-neutral";
+}
+
+function heatmapBadgeKind(status?: string): "good" | "warning" | "muted" {
+  switch (status) {
+    case "available":
+    case "ok":
+    case "evidence_found":
+      return "good";
+    case "empty":
+      return "muted";
+    case "unavailable":
+    default:
+      return "warning";
+  }
+}
+
+function buildClientMockComboFixture() {
+  const drug_a = "Gefitinib";
+  const drug_b = "Osimertinib";
+  const mock_records = [
+    { source: "DrugComb (Mock)", source_id: "mock-block-101", drug_a, drug_b, cell_line: "A549", metric: "ZIP", score: 18.5, reported_interpretation: "synergistic", study: "DEMO-ALMANAC", assay: "72h viability", concentration_a: 1.0, concentration_b: 2.0, concentration_unit: "uM", ratio: "1:2", url: "https://example.invalid/mock-block-101", raw_display_permitted: true, source_record: { block_id: "mock-101", metric: "ZIP", score: 18.5, cell: "A549" } },
+    { source: "DrugComb (Mock)", source_id: "mock-block-102", drug_a, drug_b, cell_line: "A549", metric: "Bliss", score: 8.7, reported_interpretation: "synergy", study: "DEMO-ALMANAC", assay: "72h viability", concentration_a: 1.0, concentration_b: 2.0, concentration_unit: "uM", ratio: "1:2", url: "https://example.invalid/mock-block-102", raw_display_permitted: true, source_record: { block_id: "mock-102", metric: "Bliss", score: 8.7, cell: "A549" } },
+    { source: "DrugComb (Mock)", source_id: "mock-block-103", drug_a, drug_b, cell_line: "A549", metric: "Loewe", score: 0.2, reported_interpretation: "additive", study: "DEMO-ALMANAC", assay: "72h viability", concentration_a: 1.0, concentration_b: 2.0, concentration_unit: "uM", ratio: "1:2", url: "https://example.invalid/mock-block-103", raw_display_permitted: true, source_record: { block_id: "mock-103", metric: "Loewe", score: 0.2, cell: "A549" } },
+    { source: "DrugComb (Mock)", source_id: "mock-block-104", drug_a, drug_b, cell_line: "A549", metric: "HSA", score: -16.4, reported_interpretation: "antagonistic", study: "DEMO-ALMANAC", assay: "72h viability", concentration_a: 1.0, concentration_b: 2.0, concentration_unit: "uM", ratio: "1:2", url: "https://example.invalid/mock-block-104", raw_display_permitted: true, source_record: { block_id: "mock-104", metric: "HSA", score: -16.4, cell: "A549" } },
+    { source: "DrugComb (Mock)", source_id: "mock-block-201", drug_a, drug_b, cell_line: "MCF7", metric: "ZIP", score: 4.6, reported_interpretation: "positive", study: "DEMO-ONEIL", assay: "cell titer", concentration_a: 0.5, concentration_b: 1.0, concentration_unit: "uM", ratio: "1:2", url: "https://example.invalid/mock-block-201", raw_display_permitted: true, source_record: { block_id: "mock-201", metric: "ZIP", score: 4.6, cell: "MCF7" } },
+    { source: "DrugComb (Mock)", source_id: "mock-block-202", drug_a, drug_b, cell_line: "MCF7", metric: "Bliss", score: -8.4, reported_interpretation: "antagonistic", study: "DEMO-ONEIL", assay: "cell titer", concentration_a: 0.5, concentration_b: 1.0, concentration_unit: "uM", ratio: "1:2", url: "https://example.invalid/mock-block-202", raw_display_permitted: true, source_record: { block_id: "mock-202", metric: "Bliss", score: -8.4, cell: "MCF7" } },
+    { source: "DrugComb (Mock)", source_id: "mock-block-203", drug_a, drug_b, cell_line: "MCF7", metric: "Loewe", score: 3.1, reported_interpretation: "positive", study: "DEMO-ONEIL", assay: "cell titer", concentration_a: 0.5, concentration_b: 1.0, concentration_unit: "uM", ratio: "1:2", url: "https://example.invalid/mock-block-203", raw_display_permitted: true, source_record: { block_id: "mock-203", metric: "Loewe", score: 3.1, cell: "MCF7" } },
+    { source: "DrugComb (Mock)", source_id: "mock-block-301", drug_a, drug_b, cell_line: "H1299", metric: "ZIP", score: 9.2, reported_interpretation: "synergistic", study: "DEMO-CLOUD-1", assay: "viability", concentration_a: 2.0, concentration_b: 4.0, concentration_unit: "uM", ratio: "1:2", url: "https://example.invalid/mock-block-301", raw_display_permitted: true, source_record: { block_id: "mock-301", metric: "ZIP", score: 9.2, cell: "H1299" } },
+    { source: "DrugComb (Mock)", source_id: "mock-block-302", drug_a, drug_b, cell_line: "H1299", metric: "ZIP", score: -2.8, reported_interpretation: "antagonistic", study: "DEMO-CLOUD-2", assay: "colony formation", concentration_a: 0.2, concentration_b: 0.5, concentration_unit: "uM", ratio: "1:2.5", url: "https://example.invalid/mock-block-302", raw_display_permitted: true, source_record: { block_id: "mock-302", metric: "ZIP", score: -2.8, cell: "H1299" } },
+    { source: "DrugComb (Mock)", source_id: "mock-block-303", drug_a, drug_b, cell_line: "H1299", metric: "Bliss", score: 0.0, reported_interpretation: "neutral", study: "DEMO-CLOUD-1", assay: "viability", concentration_a: 2.0, concentration_b: 4.0, concentration_unit: "uM", ratio: "1:2", url: "https://example.invalid/mock-block-303", raw_display_permitted: true, source_record: { block_id: "mock-303", metric: "Bliss", score: 0.0, cell: "H1299" } },
+  ];
+
+  const ledger = mock_records.map(r => ({
+    source: r.source,
+    record_id: `DrugComb (Mock):${r.source_id}`,
+    source_id: r.source_id,
+    url: r.url,
+    retrieved_at: new Date().toISOString(),
+    http_status: 200,
+    license: "CC-BY-4.0 (Demonstration)",
+    raw_display_permitted: true,
+    raw_json: r.source_record,
+    normalized_record: r,
+    transformations: ["mock_fixture_injection"],
+  }));
+
+  const metrics = ["ZIP", "Bliss", "Loewe", "HSA"];
+  const cell_lines = ["A549", "H1299", "MCF7"];
+
+  const cells = [
+    { cell_line: "A549", metric: "ZIP", state: "OBSERVED", observation_count: 1, scores: [mock_records[0]], context_dependent: false },
+    { cell_line: "A549", metric: "Bliss", state: "OBSERVED", observation_count: 1, scores: [mock_records[1]], context_dependent: false },
+    { cell_line: "A549", metric: "Loewe", state: "OBSERVED", observation_count: 1, scores: [mock_records[2]], context_dependent: false },
+    { cell_line: "A549", metric: "HSA", state: "OBSERVED", observation_count: 1, scores: [mock_records[3]], context_dependent: false },
+    { cell_line: "H1299", metric: "ZIP", state: "OBSERVED", observation_count: 2, scores: [mock_records[7], mock_records[8]], context_dependent: true, warning: "Conflicting qualitative source interpretations reported: synergistic vs antagonistic." },
+    { cell_line: "H1299", metric: "Bliss", state: "OBSERVED", observation_count: 1, scores: [mock_records[9]], context_dependent: false },
+    { cell_line: "H1299", metric: "Loewe", state: "NO_DATA", observation_count: 0, scores: [] },
+    { cell_line: "H1299", metric: "HSA", state: "NO_DATA", observation_count: 0, scores: [] },
+    { cell_line: "MCF7", metric: "ZIP", state: "OBSERVED", observation_count: 1, scores: [mock_records[4]], context_dependent: false },
+    { cell_line: "MCF7", metric: "Bliss", state: "OBSERVED", observation_count: 1, scores: [mock_records[5]], context_dependent: false },
+    { cell_line: "MCF7", metric: "Loewe", state: "OBSERVED", observation_count: 1, scores: [mock_records[6]], context_dependent: false },
+    { cell_line: "MCF7", metric: "HSA", state: "NO_DATA", observation_count: 0, scores: [] },
+  ];
+
+  return {
+    status: "evidence_found",
+    drug_a,
+    drug_b,
+    is_mock_fixture: true,
+    fixture_notice: "Clearly labelled demonstration fixture: Synthetic DrugComb records demonstrating cell-line × metric synergy heatmap, diverging color-blind-safe styling, context warnings, and provenance ledger audit links. Not live biomedical data.",
+    interpretation: "Demonstration fixture loaded. Live DrugComb queries remain unverified and guarded by default.",
+    evidence_count: mock_records.length,
+    evidence: mock_records,
+    evidence_ledger: ledger,
+    synergy_heatmap: {
+      status: "available",
+      cell_lines,
+      metrics,
+      cells,
+      legend: {
+        NO_DATA: "Explicit missing observation; not additive or ineffective.",
+        OBSERVED: "Recorded in-vitro synergy experiment score.",
+      },
+      interpretation: "3 cell lines across 4 synergy metrics evaluated.",
+    },
+    safety: {
+      status: "unavailable",
+      decision: "REVIEW",
+      ddi_risk_level: "UNKNOWN",
+      error: "Drug interaction data requires authorized DrugBank credentials; missing DDI evidence remains UNKNOWN/REVIEW.",
+    },
+  };
+}
+
 function SourceLink({ url, label = "Open source record" }: { url?: unknown; label?: string }) {
   return typeof url === "string" && url.startsWith("https://")
     ? <a href={url} target="_blank" rel="noreferrer">{label}</a>
